@@ -1,0 +1,27 @@
+# Secret environment files
+.env
+**/.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+
+# Local data
+uploads/
+chroma_db/
+*.db
+
+# IDE and OS
+.vscode/
+.DS_Store
+Thumbs.db
