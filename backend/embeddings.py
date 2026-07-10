@@ -15,6 +15,13 @@ class EmbeddingManager:
     def __init__(self):
         self.model = None
         self.mode = "sentence-transformers"
+        self.dimension = 384
+        self._initialized = False
+
+    def _initialize(self):
+        if self._initialized:
+            return
+        self._initialized = True
         
         # 1. Try local sentence-transformers
         try:
@@ -59,6 +66,8 @@ class EmbeddingManager:
         """
         if not texts:
             return []
+            
+        self._initialize()
 
         if self.mode == "sentence-transformers" and self.model:
             try:

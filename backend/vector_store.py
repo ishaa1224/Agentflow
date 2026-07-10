@@ -16,17 +16,41 @@ class RAGVectorStore:
     - Similarity query retrieval for RAG.
     """
     def __init__(self):
+        self._client = None
+        self._collection = None
+        self._embedding_manager = None
+        self._initialized = False
+        self.collection_name = "agentflow_workspace"
+
+    def _initialize(self):
+        if self._initialized:
+            return
         # Initialize persistent Chroma client
-        self.client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
-        self.embedding_manager = EmbeddingManager()
+        self._client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
+        self._embedding_manager = EmbeddingManager()
         
         # We will use a single unified collection for the workspace
         # to search across all uploaded documents.
-        self.collection_name = "agentflow_workspace"
-        self.collection = self.client.get_or_create_collection(
+        self._collection = self._client.get_or_create_collection(
             name=self.collection_name
         )
         logger.info(f"ChromaDB persistent collection '{self.collection_name}' initialized.")
+        self._initialized = True
+
+    @property
+    def client(self):
+        self._initialize()
+        return self._client
+        
+    @property
+    def collection(self):
+        self._initialize()
+        return self._collection
+        
+    @property
+    def embedding_manager(self):
+        self._initialize()
+        return self._embedding_manager
 
     def chunk_text(self, text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
         """
