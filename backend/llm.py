@@ -16,6 +16,12 @@ class LLMClient:
     def __init__(self):
         self.api_key = GEMINI_API_KEY
         self.use_mock = USE_MOCK_LLM
+        self.model = None
+        self._initialized = False
+
+    def _initialize(self):
+        if self._initialized: return
+        self._initialized = True
         
         if not self.use_mock:
             try:
@@ -36,6 +42,7 @@ class LLMClient:
         - system_instruction: Guides system constraints.
         - response_json: Forces return content to format as JSON.
         """
+        self._initialize()
         if not self.use_mock:
             try:
                 import google.generativeai as genai
