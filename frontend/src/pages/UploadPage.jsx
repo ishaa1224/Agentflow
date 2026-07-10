@@ -19,7 +19,8 @@ import {
 } from 'lucide-react'
 
 // Backend upload api URL
-const API_URL = 'http://127.0.0.1:8000/upload'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+const API_URL = `${API_BASE}/upload`
 
 export default function UploadPage() {
   const navigate = useNavigate()
@@ -142,7 +143,7 @@ export default function UploadPage() {
       // Automatically analyze document content to extract tasks in the database
       if (data.text_preview) {
         setSuccess(prev => prev + ' AI Ingestion Active: Extracting tasks, meetings, and reminders...')
-        fetch('http://127.0.0.1:8000/api/documents/extract', {
+        fetch(`${API_BASE}/api/documents/extract`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 

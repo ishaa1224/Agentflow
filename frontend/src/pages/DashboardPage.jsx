@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles,
   Inbox,
+  Mail,
+  RefreshCw,
   CheckSquare,
   FileText,
   Settings,
@@ -53,7 +55,7 @@ import {
 } from '../components/LoadingSkeleton'
 
 // API endpoints
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -74,7 +76,9 @@ export default function DashboardPage() {
   })
   
   // Tab Routing State (Sidebar labels)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(() => {
+    return new URLSearchParams(window.location.search).get('tab') || 'overview'
+  })
   const [onboardingOpen, setOnboardingOpen] = useState(false)
   
   // Data State
@@ -179,7 +183,7 @@ export default function DashboardPage() {
 
   const fetchBackendStatus = async () => {
     try {
-      const response = await fetch(`${API_BASE}/`)
+      const response = await fetchWithAuth(`${API_BASE}/`)
       if (response.ok) {
         const data = await response.json()
         setBackendStatus('online')
@@ -195,7 +199,7 @@ export default function DashboardPage() {
   const fetchTasks = async () => {
     setLoadingTasks(true)
     try {
-      const response = await fetch(`${API_BASE}/tasks`, { cache: 'no-store' })
+      const response = await fetchWithAuth(`${API_BASE}/tasks`, { cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
         setTasks(data)
@@ -207,23 +211,41 @@ export default function DashboardPage() {
     }
   }
 
+
+  const handleSyncGmail = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await fetchWithAuth(`${API_BASE}/api/gmail/sync`, { method: 'POST' });
+      if (response.ok) {
+        await fetchEmails();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const fetchEmails = async () => {
+
     setLoadingEmails(true)
     try {
-      const response = await fetch(`${API_BASE}/api/gmail/emails`, { cache: 'no-store' })
-      if (response.ok) {
-        const data = await response.json()
-        setEmails(data)
-        if (data.length > 0) {
-          setActiveEmail(data[0])
+      if (session?.access_token) {
+        const connectResponse = await fetchWithAuth(`${API_BASE}/api/gmail/connect?state_token=${session.access_token}`, { cache: 'no-store' })
+        if (connectResponse.ok) {
+          const connectData = await connectResponse.json()
+          setGmailConnected(connectData.connected)
+          setGmailAuthUrl(connectData.auth_url)
         }
       }
       
-      const connectResponse = await fetch(`${API_BASE}/api/gmail/connect`, { cache: 'no-store' })
-      if (connectResponse.ok) {
-        const connectData = await connectResponse.json()
-        setGmailConnected(connectData.connected)
-        setGmailAuthUrl(connectData.auth_url)
+      const response = await fetchWithAuth(`${API_BASE}/api/gmail/emails`, { cache: 'no-store' })
+      if (response.ok) {
+        const data = await response.json()
+        setEmails(Array.isArray(data) ? data : [])
+        if (data.length > 0) {
+          setActiveEmail(data[0])
+        }
       }
     } catch (e) {
       console.error(e)
@@ -235,7 +257,7 @@ export default function DashboardPage() {
   const fetchDocuments = async () => {
     setLoadingDocs(true)
     try {
-      const response = await fetch(`${API_BASE}/documents`, { cache: 'no-store' })
+      const response = await fetchWithAuth(`${API_BASE}/documents`, { cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
         setDocuments(data)
@@ -249,7 +271,7 @@ export default function DashboardPage() {
 
   const fetchNotifications = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/notifications`, { cache: 'no-store' })
+      const response = await fetchWithAuth(`${API_BASE}/api/notifications`, { cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
         setNotifications(data)
@@ -261,7 +283,7 @@ export default function DashboardPage() {
 
   const fetchActivities = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/activities`, { cache: 'no-store' })
+      const response = await fetchWithAuth(`${API_BASE}/api/activities`, { cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
         setActivityLog(data)
@@ -273,7 +295,7 @@ export default function DashboardPage() {
 
   const fetchChatHistory = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/chat_history`, { cache: 'no-store' })
+      const response = await fetchWithAuth(`${API_BASE}/api/chat_history`, { cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
         // Map backend history (query, response) to UI format
@@ -310,11 +332,11 @@ export default function DashboardPage() {
     try {
       let response
       if (editingTask) {
-        response = await fetch(`${API_BASE}/tasks/${editingTask.id}?${queryParams.toString()}`, {
+        response = await fetchWithAuth(`${API_BASE}/tasks/${editingTask.id}?${queryParams.toString()}`, {
           method: 'PUT'
         })
       } else {
-        response = await fetch(`${API_BASE}/tasks?${queryParams.toString()}`, {
+        response = await fetchWithAuth(`${API_BASE}/tasks?${queryParams.toString()}`, {
           method: 'POST'
         })
       }
@@ -337,7 +359,7 @@ export default function DashboardPage() {
   const handleDeleteTask = async (id) => {
     if (!confirm("Delete this task from index?")) return
     try {
-      const response = await fetch(`${API_BASE}/tasks/${id}`, {
+      const response = await fetchWithAuth(`${API_BASE}/tasks/${id}`, {
         method: 'DELETE'
       })
       if (response.ok) {
@@ -351,7 +373,7 @@ export default function DashboardPage() {
 
   const handleToggleTaskComplete = async (id, title) => {
     try {
-      const response = await fetch(`${API_BASE}/tasks/${id}/complete`, {
+      const response = await fetchWithAuth(`${API_BASE}/tasks/${id}/complete`, {
         method: 'POST'
       })
       if (response.ok) {
@@ -397,7 +419,7 @@ export default function DashboardPage() {
     formData.append('file', uploadFile)
 
     try {
-      const response = await fetch(`${API_BASE}/upload`, {
+      const response = await fetchWithAuth(`${API_BASE}/upload`, {
         method: 'POST',
         body: formData
       })
@@ -416,7 +438,7 @@ export default function DashboardPage() {
       if (data.text_preview) {
         fetchActivities()
 
-        fetch(`${API_BASE}/api/chat`, {
+        fetchWithAuth(`${API_BASE}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -442,7 +464,7 @@ export default function DashboardPage() {
   const handleDeleteDoc = async (id, filename) => {
     if (!confirm("Delete indexed vectors from ChromaDB workspace?")) return
     try {
-      const response = await fetch(`${API_BASE}/documents/${id}`, {
+      const response = await fetchWithAuth(`${API_BASE}/documents/${id}`, {
         method: 'DELETE'
       })
       if (response.ok) {
@@ -470,7 +492,7 @@ export default function DashboardPage() {
     setIsChatSending(true)
 
     try {
-      const response = await fetch(`${API_BASE}/api/chat`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: queryText })
@@ -517,7 +539,7 @@ export default function DashboardPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/chat`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: promptText })
@@ -551,7 +573,7 @@ export default function DashboardPage() {
   const handleGenerateReport = async () => {
     setIsReportGenerating(true)
     try {
-      const response = await fetch(`${API_BASE}/api/reports/generate`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/reports/generate`, {
         method: 'POST'
       })
       if (response.ok) {
@@ -572,7 +594,7 @@ export default function DashboardPage() {
     setPdfDownloading(true)
 
     try {
-      const response = await fetch(`${API_BASE}/api/reports/export`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/reports/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: reportMarkdown })
@@ -654,8 +676,8 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 space-y-8">
           
           {/* Section 1: Large Hero Section */}
-          <div className="framer-card rounded-3xl p-8 relative overflow-hidden bg-gradient-to-tr from-[var(--bg-secondary)] via-[var(--bg-card)] to-purple-500/[0.03]">
-            <div className="absolute right-0 top-0 h-44 w-44 glow-purple opacity-20 pointer-events-none"></div>
+          <div className="card rounded-lg p-8 relative overflow-hidden  from-[var(--bg-secondary)] via-[var(--bg-card)] ">
+            <div className="absolute right-0 top-0 h-44 w-44  opacity-20 pointer-events-none"></div>
             
             <div className="space-y-4">
               <h2 className="text-5xl md:text-6xl font-light text-[var(--text-primary)] tracking-tight leading-tight">
@@ -663,7 +685,7 @@ export default function DashboardPage() {
               </h2>
               
               <p className="text-lg text-[var(--text-secondary)] font-light max-w-xl">
-                You have <strong className="text-purple-500 font-semibold">{pendingTasks.length} pending deliverables</strong>, and your next major deadline is <strong className="text-[var(--text-primary)] font-medium">{nextDeadlineTask ? nextDeadlineTask.title : 'clear'}</strong>.
+                You have <strong className="text-blue-600 dark:text-blue-400 font-semibold">{pendingTasks.length} pending deliverables</strong>, and your next major deadline is <strong className="text-[var(--text-primary)] font-medium">{nextDeadlineTask ? nextDeadlineTask.title : 'clear'}</strong>.
               </p>
               
               <div className="flex flex-wrap items-center gap-6 pt-4 text-sm text-[var(--text-tertiary)] border-t border-[var(--border-color)]">
@@ -694,18 +716,18 @@ export default function DashboardPage() {
           </div>
 
           {/* Section 2: Today's Focus Checklist */}
-          <div className="framer-card rounded-3xl p-8 space-y-6">
+          <div className="card rounded-lg p-8 space-y-6">
             <div className="flex justify-between items-center pb-3 border-b border-[var(--border-color)]">
               <div>
                 <h3 className="text-2xl font-light text-[var(--text-primary)] tracking-tight">Today's Focus</h3>
                 <p className="text-sm text-[var(--text-tertiary)] mt-0.5">Primary checklist schedule metrics.</p>
               </div>
-              <span className="text-sm font-semibold text-purple-500">{completionPercent}% done</span>
+              <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{completionPercent}% done</span>
             </div>
 
             {/* Checklist progress bar */}
-            <div className="w-full bg-[var(--border-color)] h-2 rounded-full overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-500 to-blue-500 h-full transition-all duration-300" style={{ width: `${completionPercent}%` }} />
+            <div className="w-full bg-[var(--border-color)] h-2 rounded-md overflow-hidden">
+              <div className=" from-purple-500 to-blue-500 h-full transition-all duration-300" style={{ width: `${completionPercent}%` }} />
             </div>
 
             {pendingTasks.length === 0 ? (
@@ -717,19 +739,19 @@ export default function DashboardPage() {
                 {pendingTasks.slice(0, 3).map((task) => (
                   <div
                     key={task.id}
-                    className="flex justify-between items-center p-4 border border-[var(--border-color)] bg-[var(--bg-primary)]/20 rounded-2xl text-sm"
+                    className="flex justify-between items-center p-4 border border-[var(--border-color)] bg-[var(--bg-primary)]/20 rounded-lg text-sm"
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
                       <button
                         onClick={() => handleToggleTaskComplete(task.id, task.title)}
                         className="h-5 w-5 rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center justify-center shrink-0"
                       >
-                        <Check className="h-3.5 w-3.5 opacity-0 hover:opacity-100 transition text-purple-500" />
+                        <Check className="h-3.5 w-3.5 opacity-0 hover:opacity-100 transition text-blue-600 dark:text-blue-400" />
                       </button>
                       <span className="font-semibold text-[var(--text-primary)] truncate">{task.title}</span>
                     </div>
 
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                    <span className={`px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${
                       task.priority === 'High' ? 'text-red-500 bg-red-500/10' : 'text-slate-500 bg-[var(--border-color)]'
                     }`}>
                       {task.priority}
@@ -741,7 +763,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Section 5: Recent Documents Card deck */}
-          <div className="framer-card rounded-3xl p-8 space-y-6">
+          <div className="card rounded-lg p-8 space-y-6">
             <div className="flex justify-between items-center pb-3 border-b border-[var(--border-color)]">
               <div>
                 <h3 className="text-2xl font-light text-[var(--text-primary)] tracking-tight">Recent Documents</h3>
@@ -749,14 +771,14 @@ export default function DashboardPage() {
               </div>
               <button
                 onClick={() => setActiveTab('documents')}
-                className="text-sm font-semibold text-purple-500 hover:text-purple-400"
+                className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-purple-400"
               >
                 Browse All
               </button>
             </div>
 
             {documents.length === 0 ? (
-              <div className="py-12 text-center text-sm text-[var(--text-tertiary)] border border-dashed border-[var(--border-color)] rounded-2xl">
+              <div className="py-12 text-center text-sm text-[var(--text-tertiary)] border border-dashed border-[var(--border-color)] rounded-lg">
                 No active document indices.
               </div>
             ) : (
@@ -764,11 +786,11 @@ export default function DashboardPage() {
                 {documents.slice(0, 2).map((doc) => (
                   <div
                     key={doc.id}
-                    className="p-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-primary)]/40 flex flex-col justify-between min-h-[130px] group"
+                    className="p-5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 flex flex-col justify-between min-h-[130px] group"
                   >
                     <div className="flex items-start gap-3 justify-between">
                       <div className="flex items-center gap-3 min-w-0">
-                        <FileText className="h-6 w-6 text-purple-500 shrink-0" />
+                        <FileText className="h-6 w-6 text-blue-600 dark:text-blue-400 shrink-0" />
                         <h4 className="font-semibold text-[var(--text-primary)] text-sm truncate max-w-[130px]" title={doc.filename}>
                           {doc.filename}
                         </h4>
@@ -779,7 +801,7 @@ export default function DashboardPage() {
                           setActiveTab('rag')
                           executeChatQuery(`Summarize document: ${doc.filename}`)
                         }}
-                        className="text-xs text-purple-500 hover:underline font-bold"
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-bold"
                       >
                         AI Summarize
                       </button>
@@ -795,7 +817,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Section 6: Recent Activity Timeline */}
-          <div className="framer-card rounded-3xl p-8 space-y-6">
+          <div className="card rounded-lg p-8 space-y-6">
             <h3 className="text-2xl font-light text-[var(--text-primary)] tracking-tight pb-3 border-b border-[var(--border-color)]">
               Workspace Activity
             </h3>
@@ -804,7 +826,7 @@ export default function DashboardPage() {
               {activityLog.slice(0, 3).map((log) => (
                 <div key={log.id} className="relative text-sm">
                   {/* Timeline dot */}
-                  <span className="absolute -left-[30px] top-1 h-3.5 w-3.5 rounded-full border-2 border-[var(--bg-secondary)] bg-purple-500 shadow-sm" />
+                  <span className="absolute -left-[30px] top-1 h-3.5 w-3.5 rounded-md border-2 border-[var(--bg-secondary)] bg-blue-600 shadow-sm" />
                   <div className="flex justify-between items-center">
                     <span className="text-[var(--text-primary)] font-medium">{log.action || log.text}</span>
                     <span className="text-xs text-[var(--text-tertiary)] font-mono">{log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : log.time}</span>
@@ -820,14 +842,14 @@ export default function DashboardPage() {
         <div className="space-y-8">
           
           {/* Section 3: AI Insights */}
-          <div className="framer-card rounded-3xl p-8 space-y-6 bg-gradient-to-b from-[var(--bg-secondary)] to-purple-500/[0.02] border-purple-500/10">
+          <div className="card rounded-lg p-8 space-y-6  from-[var(--bg-secondary)]  border-blue-500/10">
             <div className="flex items-center gap-2 pb-3 border-b border-[var(--border-color)]">
-              <Sparkles className="h-5 w-5 text-purple-500" />
+              <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               <h3 className="text-xl font-medium text-[var(--text-primary)]">AI Insights</h3>
             </div>
 
             <div className="space-y-4 text-sm text-[var(--text-secondary)] font-light leading-relaxed">
-              <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-2xl space-y-2">
+              <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg space-y-2">
                 <span className="text-xs font-bold text-amber-500 block uppercase tracking-wider">Productivity Reminder</span>
                 <p className="text-[var(--text-primary)] font-normal leading-normal">
                   Study DSA for 2 more hours to clear pending mock schedule targets!
@@ -838,14 +860,14 @@ export default function DashboardPage() {
                 You have completed <strong className="text-[var(--text-primary)]">{completionPercent}%</strong> of your tasks this week.
               </p>
               
-              <div className="p-4 bg-purple-500/[0.03] border border-purple-500/10 rounded-2xl text-[var(--text-primary)] font-normal">
+              <div className="p-4 bg-blue-600/[0.03] border border-blue-500/10 rounded-lg text-[var(--text-primary)] font-normal">
                 💡 Tip: Upload document logs to Knowledge Base to generate automated summary checklists.
               </div>
             </div>
           </div>
 
           {/* Section 4: Upcoming Deadlines */}
-          <div className="framer-card rounded-3xl p-8 space-y-6">
+          <div className="card rounded-lg p-8 space-y-6">
             <h3 className="text-xl font-medium text-[var(--text-primary)] pb-3 border-b border-[var(--border-color)]">
               Upcoming Deadlines
             </h3>
@@ -855,7 +877,7 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-3.5">
                 {pendingTasks.slice(0, 3).map((task) => (
-                  <div key={task.id} className="p-4 border border-[var(--border-color)] rounded-2xl space-y-2">
+                  <div key={task.id} className="p-4 border border-[var(--border-color)] rounded-lg space-y-2">
                     <div className="flex justify-between items-center">
                       <h4 className="font-semibold text-sm text-[var(--text-primary)] truncate max-w-[140px]">{task.title}</h4>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
@@ -875,9 +897,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Section 7: AI Copilot Widget */}
-          <div className="framer-card rounded-3xl p-8 space-y-6">
+          <div className="card rounded-lg p-8 space-y-6">
             <div className="flex items-center gap-2 pb-3 border-b border-var(--border-color)">
-              <Sparkles className="h-5 w-5 text-purple-500 animate-pulse" />
+              <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-400 " />
               <h3 className="text-xl font-medium text-[var(--text-primary)]">AI Assistant</h3>
             </div>
 
@@ -911,7 +933,7 @@ export default function DashboardPage() {
                     }
                   }}
                 />
-                <button className="absolute right-2.5 top-2.5 p-1 bg-purple-500 text-white rounded-lg hover:opacity-90">
+                <button className="absolute right-2.5 top-2.5 p-1 bg-blue-600 text-white rounded-lg hover:opacity-90">
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
@@ -924,148 +946,171 @@ export default function DashboardPage() {
     )
   }
 
-  // 2. Knowledge Base (Documents listing + uploads)
+// 2. Knowledge Base (Documents listing + uploads)
   const renderDocuments = () => {
     const filteredDocs = documents.filter(doc => 
       doc.filename.toLowerCase().includes(documentSearchQuery.toLowerCase())
     )
 
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-8rem)] min-h-[500px] animate-slide-up text-sm font-light leading-relaxed">
-        {/* Upload Pane */}
-        <div className="lg:col-span-1 framer-card rounded-2xl p-6 flex flex-col gap-6 h-fit">
-          <h3 className="text-base font-bold uppercase tracking-widest text-[var(--text-secondary)] pb-2.5 border-b border-[var(--border-color)]">
-            Ingest Document
-          </h3>
-          
-          {uploadError && (
-            <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-xl text-sm text-red-500">
-              {uploadError}
-            </div>
-          )}
-          {uploadSuccess && (
-            <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl text-sm text-emerald-500">
-              {uploadSuccess}
-            </div>
-          )}
-          
-          <form onSubmit={handleUploadFile} className="space-y-4">
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border border-dashed border-[var(--border-color)] rounded-2xl p-8 text-center cursor-pointer hover:border-purple-500/20 hover:bg-[var(--bg-secondary)]/50 transition duration-150 flex flex-col items-center justify-center bg-[var(--bg-primary)]/40"
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={(e) => {
-                  setUploadError(null)
-                  setUploadSuccess(null)
-                  setUploadFile(e.target.files[0])
-                }}
-                accept=".pdf"
-                className="hidden"
-              />
-              
-              {uploadFile ? (
-                <>
-                  <FileText className="h-10 w-10 text-purple-500 mb-2" />
-                  <span className="text-sm text-[var(--text-primary)] truncate max-w-full font-medium">{uploadFile.name}</span>
-                  <span className="text-xs text-[var(--text-tertiary)] mt-1">{(uploadFile.size / 1024).toFixed(0)} KB</span>
-                </>
-              ) : (
-                <>
-                  <UploadCloud className="h-10 w-10 text-[var(--text-tertiary)] mb-2" />
-                  <span className="text-sm text-[var(--text-primary)] font-medium">Click to select PDF</span>
-                  <span className="text-xs text-[var(--text-tertiary)] mt-1.5">Supports local notes & manuals</span>
-                </>
-              )}
+      <div className="flex flex-col gap-8 h-full animate-slide-up text-sm font-light leading-relaxed max-w-6xl mx-auto w-full">
+        {/* Top: Upload Area */}
+        <div className="card rounded-xl p-8 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm">
+          <div className="flex flex-col md:flex-row gap-8 items-center">
+            <div className="md:w-1/3 space-y-3">
+              <div className="h-12 w-12 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-4">
+                <UploadCloud className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)] tracking-tight">Knowledge Ingestion</h3>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Upload PDFs, notes, or manuals to expand your workspace's semantic search capabilities.
+              </p>
             </div>
             
-            <button
-              type="submit"
-              disabled={uploadLoading || !uploadFile}
-              className="w-full btn-primary py-3 font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
-            >
-              {uploadLoading ? 'Indexing vectors...' : 'Process Document'}
-            </button>
-          </form>
+            <div className="md:w-2/3 w-full">
+              {uploadError && (
+                <div className="mb-4 p-3 bg-red-500/5 border border-red-500/10 rounded-lg text-sm text-red-500 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" /> {uploadError}
+                </div>
+              )}
+              {uploadSuccess && (
+                <div className="mb-4 p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg text-sm text-emerald-600 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4" /> {uploadSuccess}
+                </div>
+              )}
+              
+              <form onSubmit={handleUploadFile} className="flex flex-col sm:flex-row gap-4 w-full">
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-grow border-2 border-dashed border-[var(--border-color)] rounded-xl p-5 text-center cursor-pointer hover:border-blue-500/40 hover:bg-blue-500/5 transition-all duration-200 flex items-center justify-center bg-[var(--bg-primary)]/40 min-h-[100px] group"
+                >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={(e) => {
+                      setUploadError(null)
+                      setUploadSuccess(null)
+                      setUploadFile(e.target.files[0])
+                    }}
+                    accept=".pdf"
+                    className="hidden"
+                  />
+                  
+                  {uploadFile ? (
+                    <div className="flex items-center gap-3 text-left w-full px-4">
+                      <FileText className="h-8 w-8 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <div className="overflow-hidden">
+                        <span className="text-sm text-[var(--text-primary)] truncate font-semibold block">{uploadFile.name}</span>
+                        <span className="text-xs text-[var(--text-tertiary)] font-mono">{(uploadFile.size / 1024).toFixed(0)} KB</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 text-left">
+                      <div className="h-10 w-10 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Plus className="h-5 w-5 text-[var(--text-tertiary)]" />
+                      </div>
+                      <div>
+                        <span className="text-sm text-[var(--text-primary)] font-semibold block">Select PDF Document</span>
+                        <span className="text-xs text-[var(--text-tertiary)]">Drag & drop or click to browse</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={uploadLoading || !uploadFile}
+                  className="sm:w-40 w-full btn-primary font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-sm transition-all hover:shadow-md"
+                >
+                  {uploadLoading ? (
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                  ) : (
+                    'Process PDF'
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
         </div>
 
-        {/* Documents deck list */}
-        <div className="lg:col-span-2 flex flex-col gap-6 h-full overflow-y-auto pr-1">
-          <div className="framer-card rounded-2xl p-6 flex flex-col h-full bg-[var(--bg-secondary)]">
-            
-            {/* Search Input Bar */}
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-[var(--border-color)] pb-4 mb-4 shrink-0">
-              <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--text-secondary)]">Workspace Library</h3>
-              <div className="relative max-w-xs w-full">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-[var(--text-tertiary)]" />
-                <input
-                  type="text"
-                  placeholder="Search documents..."
-                  value={documentSearchQuery}
-                  onChange={(e) => setDocumentSearchQuery(e.target.value)}
-                  className="w-full glass-input py-2.5 pl-10 text-sm"
-                />
-              </div>
+        {/* Bottom: Documents List */}
+        <div className="flex-grow flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] overflow-hidden shadow-sm">
+          {/* Header & Search */}
+          <div className="px-6 py-5 border-b border-[var(--border-color)] flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-black/5">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--text-secondary)]">Indexed Library</h3>
+            <div className="relative max-w-sm w-full">
+              <Search className="absolute left-3 top-3.5 h-4 w-4 text-[var(--text-tertiary)]" />
+              <input
+                type="text"
+                placeholder="Search indexed files..."
+                value={documentSearchQuery}
+                onChange={(e) => setDocumentSearchQuery(e.target.value)}
+                className="w-full glass-input py-2.5 pl-9 rounded-lg text-sm bg-[var(--bg-primary)] focus:ring-1 focus:ring-blue-500/50 outline-none border border-[var(--border-color)]"
+              />
             </div>
+          </div>
 
-            {/* List */}
-            <div className="flex-grow overflow-y-auto space-y-4 pr-1 custom-scrollbar">
-              {loadingDocs ? (
-                <div className="space-y-4">
-                  <LineSkeleton className="w-full h-12" />
-                  <LineSkeleton className="w-full h-12" />
-                </div>
-              ) : filteredDocs.length === 0 ? (
-                <div className="text-center py-20 text-sm text-[var(--text-tertiary)] border border-dashed border-[var(--border-color)] rounded-xl flex flex-col items-center justify-center h-full">
-                  <Files className="h-10 w-10 text-[var(--text-tertiary)] mb-2" />
-                  <span>No documents matched your search.</span>
-                </div>
-              ) : (
-                filteredDocs.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="p-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-primary)]/45 flex items-center justify-between text-sm hover:border-[var(--text-secondary)] transition gap-4"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-10 w-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-500 shrink-0">
-                        <FileText className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="text-[var(--text-primary)] truncate font-semibold text-sm">{doc.filename}</h4>
-                        <span className="text-xs text-[var(--text-tertiary)] font-mono mt-0.5 block">
-                          {(doc.file_size / (1024 * 1024)).toFixed(2)} MB • Indexed
+          {/* List Content */}
+          <div className="flex-grow overflow-y-auto p-6 space-y-3 custom-scrollbar">
+            {loadingDocs ? (
+              <div className="space-y-3">
+                <LineSkeleton className="w-full h-16 rounded-xl" />
+                <LineSkeleton className="w-full h-16 rounded-xl" />
+                <LineSkeleton className="w-full h-16 rounded-xl" />
+              </div>
+            ) : filteredDocs.length === 0 ? (
+              <div className="text-center py-16 text-sm text-[var(--text-tertiary)] flex flex-col items-center justify-center h-full">
+                <Files className="h-12 w-12 text-[var(--border-color)] mb-4" />
+                <span className="font-medium text-[var(--text-secondary)]">Library is empty</span>
+                <span className="mt-1 text-xs">Upload a document above to begin indexing.</span>
+              </div>
+            ) : (
+              filteredDocs.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] flex flex-col sm:flex-row sm:items-center justify-between text-sm hover:border-blue-500/30 hover:shadow-sm transition-all gap-4 group"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="h-12 w-12 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] flex items-center justify-center text-[var(--text-secondary)] shrink-0 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                      <FileText className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-[var(--text-primary)] truncate font-semibold text-base">{doc.filename}</h4>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-[var(--text-tertiary)] font-mono bg-[var(--bg-secondary)] px-2 py-0.5 rounded-md">
+                          {(doc.file_size / (1024 * 1024)).toFixed(2)} MB
+                        </span>
+                        <span className="text-xs text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md font-medium flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Indexed
                         </span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-3 shrink-0">
-                      <button
-                        onClick={() => {
-                          setActiveTab('rag')
-                          executeChatQuery(`Summarize document: ${doc.filename}`)
-                        }}
-                        className="btn-secondary py-2 px-3.5 rounded-lg text-sm flex items-center gap-1.5"
-                        title="Summarize document via AI"
-                      >
-                        <Sparkles className="h-4 w-4 text-purple-500" />
-                        <span>AI Summarize</span>
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDeleteDoc(doc.id, doc.filename)}
-                        className="text-[var(--text-tertiary)] hover:text-red-500 p-2.5 border border-[var(--border-color)] hover:border-red-500/20 bg-[var(--bg-secondary)] rounded-lg transition"
-                        title="Wipe indexing"
-                      >
-                        <Trash2 className="h-4.5 w-4.5" />
-                      </button>
-                    </div>
                   </div>
-                ))
-              )}
-            </div>
 
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => {
+                        setActiveTab('rag')
+                        executeChatQuery(`Summarize document: ${doc.filename}`)
+                      }}
+                      className="bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 py-2 px-4 rounded-lg text-sm flex items-center gap-2 font-medium transition-colors"
+                      title="Summarize document via AI"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      <span>Summarize</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => handleDeleteDoc(doc.id, doc.filename)}
+                      className="text-[var(--text-tertiary)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 p-2.5 border border-transparent hover:border-red-200 dark:hover:border-red-500/30 rounded-lg transition-colors"
+                      title="Delete from knowledge base"
+                    >
+                      <Trash2 className="h-4.5 w-4.5" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -1081,16 +1126,16 @@ export default function DashboardPage() {
     ]
 
     return (
-      <div className="framer-card rounded-2xl flex flex-col justify-between h-[calc(100vh-8rem)] min-h-[500px] overflow-hidden animate-slide-up text-sm font-light">
+      <div className="card rounded-lg flex flex-col justify-between h-[calc(100vh-8rem)] min-h-[500px] overflow-hidden animate-slide-up text-sm font-light">
         {/* Chat header */}
         <div className="px-5 py-4 border-b border-[var(--border-color)] bg-black/5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 bg-emerald-500 rounded-full animate-pulse" />
+            <span className="h-2.5 w-2.5 bg-emerald-500 rounded-md " />
             <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">AI Assistant / RAG Chat</span>
           </div>
           
           <div className="flex items-center gap-1.5 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg px-3 py-1 text-xs text-[var(--text-secondary)] font-mono">
-            <Layers className="h-4 w-4 text-purple-500" />
+            <Layers className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <span>Multi-Agent Dispatcher</span>
           </div>
         </div>
@@ -1106,7 +1151,7 @@ export default function DashboardPage() {
             >
               <div className={`h-9 w-9 rounded-lg border flex items-center justify-center shrink-0 ${
                 msg.role === 'user'
-                  ? 'bg-purple-500/10 border-purple-500/20 text-purple-500'
+                  ? 'bg-blue-600/10 border-blue-500/20 text-blue-600 dark:text-blue-400'
                   : 'bg-[var(--border-color)] text-[var(--text-secondary)]'
               }`}>
                 {msg.role === 'user' ? <User className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
@@ -1116,14 +1161,14 @@ export default function DashboardPage() {
                 {msg.routedAgent && (
                   <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] font-semibold tracking-wider uppercase mb-1.5">
                     <span>Thought Process</span>
-                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--border-color)]" />
-                    <span className="text-purple-500">{msg.routedAgent.replace('_', ' ')}</span>
+                    <span className="h-1.5 w-1.5 rounded-md bg-[var(--border-color)]" />
+                    <span className="text-blue-600 dark:text-blue-400">{msg.routedAgent.replace('_', ' ')}</span>
                   </div>
                 )}
                 
-                <div className={`rounded-2xl px-5 py-3 text-sm leading-relaxed ${
+                <div className={`rounded-lg px-5 py-3 text-sm leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-purple-600 text-white rounded-tr-none shadow-md shadow-purple-600/15'
+                    ? 'bg-blue-700 text-white rounded-tr-none shadow-md shadow-purple-600/15'
                     : 'bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] rounded-tl-none font-light shadow-sm'
                 }`}>
                   {msg.role === 'assistant' ? (
@@ -1141,8 +1186,8 @@ export default function DashboardPage() {
               <div className="h-9 w-9 rounded-lg bg-[var(--border-color)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
                 <Sparkles className="h-5 w-5 animate-spin" />
               </div>
-              <div className="flex items-center gap-1.5 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl px-5 py-3 text-sm text-[var(--text-tertiary)] font-light shadow-sm">
-                <span className="animate-pulse">Agent is thinking...</span>
+              <div className="flex items-center gap-1.5 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg px-5 py-3 text-sm text-[var(--text-tertiary)] font-light shadow-sm">
+                <span className="">Agent is thinking...</span>
               </div>
             </div>
           )}
@@ -1159,7 +1204,7 @@ export default function DashboardPage() {
               <button
                 key={i}
                 onClick={() => executeChatQuery(promptText)}
-                className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)] bg-[var(--bg-primary)] px-3.5 py-2 rounded-xl transition"
+                className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)] bg-[var(--bg-primary)] px-3.5 py-2 rounded-lg transition"
               >
                 {promptText}
               </button>
@@ -1172,13 +1217,13 @@ export default function DashboardPage() {
               value={currentMessage}
               onChange={(e) => setCurrentMessage(e.target.value)}
               placeholder="Ask a technical question, summarize documents, check pending tasks..."
-              className="w-full glass-input py-4 pr-16 pl-4 rounded-2xl text-sm"
+              className="w-full glass-input py-4 pr-16 pl-4 rounded-lg text-sm"
               disabled={isChatSending}
             />
             <button
               type="submit"
               disabled={isChatSending || !currentMessage.trim()}
-              className={`absolute right-2.5 p-3 rounded-xl transition ${
+              className={`absolute right-2.5 p-3 rounded-lg transition ${
                 !currentMessage.trim() || isChatSending
                   ? 'text-[var(--text-tertiary)]'
                   : 'text-[var(--btn-primary-text)] bg-[var(--btn-primary-bg)] hover:opacity-90 active:scale-[0.95]'
@@ -1204,15 +1249,28 @@ export default function DashboardPage() {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-8rem)] min-h-[500px] animate-slide-up text-sm font-light">
         {/* Inbox list pane */}
-        <div className="lg:col-span-1 framer-card rounded-2xl overflow-hidden flex flex-col justify-between h-full bg-[var(--bg-secondary)]">
+        <div className="lg:col-span-1 card rounded-lg overflow-hidden flex flex-col justify-between h-full bg-[var(--bg-secondary)]">
           <div className="px-5 py-4 border-b border-[var(--border-color)] bg-black/5 flex flex-col gap-3 shrink-0">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Inbox Threads</h3>
-              {gmailSandbox && (
-                <span className="text-[10px] font-bold text-amber-600 border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 rounded uppercase tracking-wide">
-                  Sandbox Mode
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {gmailSandbox && (
+                  <span className="text-[10px] font-bold text-amber-600 border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 rounded uppercase tracking-wide">
+                    Sandbox Mode
+                  </span>
+                )}
+                {!gmailConnected && gmailAuthUrl && (
+                  <a href={gmailAuthUrl} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 text-xs flex items-center gap-1.5 rounded transition shadow cursor-pointer">
+                    <Mail className="w-3.5 h-3.5" /> Connect Gmail
+                  </a>
+                )}
+                {gmailConnected && (
+                  <button onClick={handleSyncGmail} disabled={isSyncing} className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 py-1.5 px-3 text-xs flex items-center gap-1.5 rounded transition shadow-sm font-semibold">
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> 
+                    {isSyncing ? 'Syncing...' : 'Sync Inbox'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Email Search input */}
@@ -1243,9 +1301,9 @@ export default function DashboardPage() {
                   <div
                     key={email.id}
                     onClick={() => setActiveEmail(email)}
-                    className={`p-4 rounded-xl border text-sm cursor-pointer transition-all duration-150 relative ${
+                    className={`p-4 rounded-lg border text-sm cursor-pointer transition-all duration-150 relative ${
                       isActive
-                        ? 'bg-[var(--bg-primary)] border-purple-500/30'
+                        ? 'bg-[var(--bg-primary)] border-blue-500/30'
                         : 'border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-[var(--text-secondary)]'
                     }`}
                   >
@@ -1284,7 +1342,7 @@ export default function DashboardPage() {
           {activeEmail ? (
             <div className="space-y-6 flex flex-col h-full">
               
-              <div className="framer-card rounded-2xl p-6 bg-[var(--bg-secondary)] space-y-4 shadow-sm">
+              <div className="card rounded-lg p-6 bg-[var(--bg-secondary)] space-y-4 shadow-sm">
                 <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 pb-4 border-b border-[var(--border-color)]">
                   <div>
                     <h2 className="text-lg font-semibold text-[var(--text-primary)] tracking-tight leading-relaxed">
@@ -1292,7 +1350,7 @@ export default function DashboardPage() {
                     </h2>
                     <div className="text-xs text-[var(--text-secondary)] mt-1.5 flex items-center gap-1.5">
                       <span>Sender: <strong className="text-[var(--text-primary)]">{activeEmail.sender}</strong></span>
-                      <span className="h-1.5 w-1.5 bg-[var(--text-tertiary)] rounded-full" />
+                      <span className="h-1.5 w-1.5 bg-[var(--text-tertiary)] rounded-md" />
                       <span>{activeEmail.date}</span>
                     </div>
                   </div>
@@ -1304,11 +1362,11 @@ export default function DashboardPage() {
               </div>
 
               {/* AI Dispatch widget */}
-              <div className="framer-card rounded-2xl p-6 border border-purple-500/10 bg-purple-500/5 relative overflow-hidden">
-                <div className="absolute -right-16 -top-16 h-36 w-36 glow-purple pointer-events-none opacity-40"></div>
+              <div className="card rounded-lg p-6 border border-blue-500/10 bg-blue-600/5 relative overflow-hidden">
+                <div className="absolute -right-16 -top-16 h-36 w-36  pointer-events-none opacity-40"></div>
                 
-                <h3 className="text-sm font-bold uppercase tracking-widest text-purple-600 dark:text-purple-400 mb-2.5 flex items-center gap-1.5">
-                  <Sparkles className="h-5 w-5 animate-pulse" />
+                <h3 className="text-sm font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300 dark:text-purple-400 mb-2.5 flex items-center gap-1.5">
+                  <Sparkles className="h-5 w-5 " />
                   AI Ingestion Operations Console
                 </h3>
                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed font-light mb-4">
@@ -1336,7 +1394,7 @@ export default function DashboardPage() {
 
             </div>
           ) : (
-            <div className="framer-card rounded-2xl p-8 flex flex-col items-center justify-center text-center h-full bg-[var(--bg-secondary)]">
+            <div className="card rounded-lg p-8 flex flex-col items-center justify-center text-center h-full bg-[var(--bg-secondary)]">
               <Inbox className="h-10 w-10 text-[var(--text-tertiary)] mb-2" />
               <h4 className="text-sm text-[var(--text-primary)] font-semibold">No Email Selected</h4>
               <p className="text-xs text-[var(--text-tertiary)] mt-1.5">Select a mailbox item from the feed to view contents.</p>
@@ -1362,7 +1420,7 @@ export default function DashboardPage() {
               resetTaskForm()
               setTaskModalOpen(true)
             }}
-            className="btn-primary py-2.5 px-4 flex items-center gap-2 rounded-xl shadow-lg text-xs"
+            className="btn-primary py-2.5 px-4 flex items-center gap-2 rounded-lg shadow-lg text-xs"
           >
             <Plus className="h-4.5 w-4.5" /> Log Task
           </button>
@@ -1371,17 +1429,17 @@ export default function DashboardPage() {
         {loadingTasks ? (
           <TaskListSkeleton />
         ) : tasks.length === 0 ? (
-          <div className="framer-card rounded-2xl p-12 text-center flex flex-col items-center justify-center border-dashed">
+          <div className="card rounded-lg p-12 text-center flex flex-col items-center justify-center border-dashed">
             <CheckSquare className="h-10 w-10 text-[var(--text-tertiary)] mb-2" />
             <h4 className="text-sm text-[var(--text-primary)] font-semibold">Checklist Empty</h4>
             <p className="text-xs text-[var(--text-tertiary)] mt-1.5">Use the Gmail Inbox tab to extract tasks or click "Log Task" above.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="flex flex-col gap-3">
             {tasks.map((task) => (
               <div
                 key={task.id}
-                className={`framer-card rounded-2xl p-5 transition-all duration-200 flex flex-col justify-between min-h-[140px] ${
+                className={`card rounded-lg p-5 transition-all duration-200 flex flex-col justify-between  ${
                   task.completed ? 'opacity-50' : 'hover:border-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/10'
                 }`}
               >
@@ -1391,7 +1449,7 @@ export default function DashboardPage() {
                       onClick={() => handleToggleTaskComplete(task.id, task.title)}
                       className={`h-5 w-5 rounded-md border shrink-0 mt-1 flex items-center justify-center transition-all ${
                         task.completed
-                          ? 'bg-purple-600 border-purple-500 text-white'
+                          ? 'bg-blue-700 border-blue-500 text-white'
                           : 'border-[var(--border-color)] bg-[var(--bg-primary)] hover:border-[var(--text-secondary)]'
                       }`}
                     >
@@ -1427,7 +1485,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-[var(--border-color)] flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
-                  <span className={`px-2.5 py-0.5 rounded-full ${
+                  <span className={`px-2.5 py-0.5 rounded-md ${
                     task.priority === 'High'
                       ? 'text-red-600 dark:text-red-400 border border-red-500/10 bg-red-500/5'
                       : task.priority === 'Medium'
@@ -1465,7 +1523,7 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Radial progress meter showing Productivity score */}
-          <div className="framer-card rounded-2xl p-6 flex flex-col items-center justify-center text-center space-y-4 bg-[var(--bg-secondary)] shadow-sm">
+          <div className="card rounded-lg p-6 flex flex-col items-center justify-center text-center space-y-4 bg-[var(--bg-secondary)] shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] self-start">Productivity Score</h3>
             
             <div className="relative h-44 w-44 flex items-center justify-center">
@@ -1504,7 +1562,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Core progress parameters */}
-          <div className="framer-card rounded-2xl p-6 lg:col-span-2 space-y-6 bg-[var(--bg-secondary)]">
+          <div className="card rounded-lg p-6 lg:col-span-2 space-y-6 bg-[var(--bg-secondary)]">
             <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] border-b border-[var(--border-color)] pb-3">
               Weekly Progress Dashboard
             </h3>
@@ -1515,8 +1573,8 @@ export default function DashboardPage() {
                   <span>Tasks Completed Ratio</span>
                   <span className="font-semibold">{completedCount} of {totalCount}</span>
                 </div>
-                <div className="w-full bg-[var(--border-color)] rounded-full h-2.5 overflow-hidden">
-                  <div className="bg-purple-500 h-full rounded-full transition-all duration-300" style={{ width: `${completionPercent}%` }} />
+                <div className="w-full bg-[var(--border-color)] rounded-md h-2.5 overflow-hidden">
+                  <div className="bg-blue-600 h-full rounded-md transition-all duration-300" style={{ width: `${completionPercent}%` }} />
                 </div>
               </div>
 
@@ -1525,8 +1583,8 @@ export default function DashboardPage() {
                   <span>Documents Uploaded Metric</span>
                   <span className="font-semibold">{documents.length} Files</span>
                 </div>
-                <div className="w-full bg-[var(--border-color)] rounded-full h-2.5 overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full transition-all duration-300" style={{ width: `${Math.min(documents.length * 10, 100)}%` }} />
+                <div className="w-full bg-[var(--border-color)] rounded-md h-2.5 overflow-hidden">
+                  <div className="bg-emerald-500 h-full rounded-md transition-all duration-300" style={{ width: `${Math.min(documents.length * 10, 100)}%` }} />
                 </div>
               </div>
 
@@ -1535,8 +1593,8 @@ export default function DashboardPage() {
                   <span>Notifications Read Status</span>
                   <span className="font-semibold">{readNotifications.size} of {notifications.length}</span>
                 </div>
-                <div className="w-full bg-[var(--border-color)] rounded-full h-2.5 overflow-hidden">
-                  <div className="bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${notifications.length > 0 ? (readNotifications.size / notifications.length) * 100 : 100}%` }} />
+                <div className="w-full bg-[var(--border-color)] rounded-md h-2.5 overflow-hidden">
+                  <div className="bg-blue-500 h-full rounded-md transition-all duration-300" style={{ width: `${notifications.length > 0 ? (readNotifications.size / notifications.length) * 100 : 100}%` }} />
                 </div>
               </div>
             </div>
@@ -1547,10 +1605,10 @@ export default function DashboardPage() {
     )
   }
 
-  // 7. Calendar View (Interactive monthly grids)
+// 7. Calendar View (Interactive monthly grids)
   const renderCalendar = () => {
     const calendarDays = getCalendarDays()
-    const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     
     // Find calendar tasks mapped to selected dates
     const selectedTasks = tasks.filter(task => {
@@ -1559,51 +1617,71 @@ export default function DashboardPage() {
     })
 
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-8rem)] min-h-[500px] animate-slide-up text-sm font-light">
-        {/* Calendar Grid Box */}
-        <div className="lg:col-span-2 framer-card rounded-2xl p-6 flex flex-col justify-between h-full bg-[var(--bg-secondary)]">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 h-[calc(100vh-8rem)] min-h-[500px] animate-slide-up text-sm font-light">
+        
+        {/* Left: Monthly Calendar Grid */}
+        <div className="xl:col-span-2 card rounded-xl p-6 flex flex-col h-full bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm">
           
-          <div className="space-y-4 flex-grow flex flex-col">
-            <div className="flex justify-between items-center pb-2.5 border-b border-[var(--border-color)] shrink-0">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">June 2026</h3>
-              <span className="text-[10px] text-[var(--text-tertiary)] bg-[var(--border-color)] px-2 py-0.5 rounded font-mono">monthly.grid</span>
+          {/* Header */}
+          <div className="flex justify-between items-center border-b border-[var(--border-color)] pb-5 mb-5 shrink-0">
+            <div>
+              <h2 className="text-xl font-semibold text-[var(--text-primary)] tracking-tight">Timeline & Deadlines</h2>
+              <p className="text-sm text-[var(--text-secondary)] mt-1">Select a date to view scheduled tasks.</p>
             </div>
+            <div className="bg-[var(--bg-primary)] px-4 py-2 rounded-lg border border-[var(--border-color)] font-mono text-sm shadow-sm font-semibold text-[var(--text-primary)]">
+              June 2026
+            </div>
+          </div>
 
+          <div className="flex-grow flex flex-col min-h-0 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-color)] p-4 shadow-inner">
             {/* Days row */}
-            <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-[var(--text-secondary)] py-2 shrink-0">
+            <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold uppercase tracking-wider text-[var(--text-tertiary)] pb-3 mb-2 border-b border-[var(--border-color)]/50 shrink-0">
               {daysOfWeek.map((day, idx) => (
                 <div key={idx}>{day}</div>
               ))}
             </div>
 
             {/* Monthly Calendar Cells */}
-            <div className="grid grid-cols-7 gap-2 flex-grow auto-rows-fr min-h-[220px]">
+            <div className="grid grid-cols-7 gap-2 flex-grow auto-rows-fr">
               {calendarDays.map((cell) => {
                 const isSelected = selectedCalendarDate === cell.dateString
-                
-                // Check tasks/deadlines scheduled for this cell date
                 const dueTasks = tasks.filter(t => t.deadline && t.deadline.includes(cell.dateString))
+                
+                // Determine style based on task priority
                 const hasHigh = dueTasks.some(t => t.priority === 'High')
+                const hasMed = dueTasks.some(t => t.priority === 'Medium')
                 
                 return (
                   <div
                     key={cell.dayNum}
                     onClick={() => setSelectedCalendarDate(cell.dateString)}
-                    className={`rounded-xl border cursor-pointer p-2.5 flex flex-col justify-between transition relative ${
+                    className={`rounded-xl border cursor-pointer p-2 sm:p-3 flex flex-col justify-between transition-all duration-200 relative group overflow-hidden ${
                       isSelected
-                        ? 'border-purple-600 bg-purple-500/10'
-                        : 'border-[var(--border-color)] bg-[var(--bg-primary)]/40 hover:border-[var(--text-secondary)]'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md ring-1 ring-blue-500/50'
+                        : 'border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-blue-400/50 hover:bg-[var(--bg-primary)]'
                     }`}
                   >
-                    <span className={`text-xs font-semibold ${isSelected ? 'text-purple-600 dark:text-purple-400' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`text-sm font-semibold w-7 h-7 flex items-center justify-center rounded-full ${
+                      isSelected 
+                        ? 'bg-blue-600 text-white' 
+                        : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
+                    }`}>
                       {cell.dayNum}
                     </span>
 
-                    {/* Indicator dots */}
+                    {/* Task Indicators */}
                     {dueTasks.length > 0 && (
-                      <div className="flex gap-1 justify-center mt-1">
-                        <span className={`h-2 w-2 rounded-full ${hasHigh ? 'bg-red-500 animate-pulse' : 'bg-purple-500'}`} />
-                        {dueTasks.length > 1 && <span className="h-2 w-2 rounded-full bg-blue-500" />}
+                      <div className="flex flex-col gap-1 w-full mt-2">
+                        {dueTasks.slice(0, 3).map((t, i) => (
+                          <div key={i} className={`h-1.5 w-full rounded-full opacity-80 ${
+                            t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-amber-500' : 'bg-blue-500'
+                          }`} />
+                        ))}
+                        {dueTasks.length > 3 && (
+                          <span className="text-[10px] text-[var(--text-tertiary)] font-semibold text-right leading-none">
+                            +{dueTasks.length - 3}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1611,41 +1689,65 @@ export default function DashboardPage() {
               })}
             </div>
           </div>
-          
         </div>
 
-        {/* Selected date events console drawer */}
-        <div className="lg:col-span-1 framer-card rounded-2xl p-6 flex flex-col h-full bg-[var(--bg-secondary)] shadow-sm">
-          <div className="border-b border-[var(--border-color)] pb-3.5 mb-4 shrink-0">
-            <span className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest block font-mono">Selected Date Agenda</span>
-            <h3 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight mt-1.5">
-              June {selectedCalendarDate.split('-')[2]}, 2026
+        {/* Right: Selected Date Agenda Drawer */}
+        <div className="xl:col-span-1 card rounded-xl p-0 flex flex-col h-full bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm overflow-hidden">
+          
+          {/* Header */}
+          <div className="bg-black/5 p-6 border-b border-[var(--border-color)] shrink-0">
+            <span className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest font-mono mb-1 block">
+              Agenda
+            </span>
+            <h3 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+              <CalendarIcon className="h-6 w-6 text-blue-500" />
+              June {selectedCalendarDate.split('-')[2]}
             </h3>
           </div>
 
-          <div className="flex-grow overflow-y-auto space-y-4 custom-scrollbar pr-1">
+          <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar bg-[var(--bg-primary)]/30">
             {selectedTasks.length === 0 ? (
-              <div className="py-20 text-center text-xs text-[var(--text-tertiary)] flex flex-col items-center justify-center h-full">
-                <Clock className="h-8 w-8 text-[var(--text-tertiary)] mb-2" />
-                <span>No tasks or meetings due on this date.</span>
+              <div className="py-20 text-center flex flex-col items-center justify-center h-full">
+                <div className="h-16 w-16 bg-[var(--bg-primary)] rounded-full border border-dashed border-[var(--border-color)] flex items-center justify-center mb-4">
+                  <Clock className="h-6 w-6 text-[var(--text-tertiary)]" />
+                </div>
+                <span className="text-[var(--text-secondary)] font-medium">Schedule is clear</span>
+                <span className="text-xs text-[var(--text-tertiary)] mt-1">No tasks due on this date.</span>
               </div>
             ) : (
               selectedTasks.map((task) => (
                 <div
                   key={task.id}
-                  className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)]/40 space-y-2.5 text-xs"
+                  className="group p-5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] shadow-sm hover:shadow-md transition-shadow relative overflow-hidden"
                 >
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-[var(--text-primary)] truncate pr-2 text-sm">{task.title}</span>
-                    <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
-                      task.priority === 'High' ? 'text-red-500 bg-red-500/10' : 'text-slate-500 bg-[var(--border-color)]'
-                    }`}>
-                      {task.priority}
-                    </span>
+                  {/* Left accent border based on priority */}
+                  <div className={`absolute left-0 top-0 bottom-0 w-1 ${
+                    task.priority === 'High' ? 'bg-red-500' : task.priority === 'Medium' ? 'bg-amber-500' : 'bg-blue-500'
+                  }`} />
+                  
+                  <div className="pl-2">
+                    <div className="flex justify-between items-start gap-4 mb-2">
+                      <h4 className="font-semibold text-[var(--text-primary)] leading-tight text-base">{task.title}</h4>
+                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider shrink-0 border ${
+                        task.priority === 'High' 
+                          ? 'text-red-600 bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/20' 
+                          : task.priority === 'Medium'
+                          ? 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20'
+                          : 'text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/20'
+                      }`}>
+                        {task.priority}
+                      </span>
+                    </div>
+                    
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed font-light line-clamp-3 mb-3">
+                      {task.description || 'No description provided for this task.'}
+                    </p>
+                    
+                    <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-tertiary)] bg-[var(--bg-secondary)] px-3 py-1.5 rounded-lg w-fit">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{task.deadline ? task.deadline.slice(11, 16) : 'Any time'}</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-[var(--text-secondary)] leading-relaxed font-light line-clamp-2">
-                    {task.description || 'No description provided.'}
-                  </p>
                 </div>
               ))
             )}
@@ -1660,7 +1762,7 @@ export default function DashboardPage() {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-8rem)] min-h-[500px] animate-slide-up text-sm font-light">
         {/* Generate card */}
-        <div className="lg:col-span-1 framer-card rounded-2xl p-6 flex flex-col justify-between h-full bg-[var(--bg-secondary)]">
+        <div className="lg:col-span-1 card rounded-lg p-6 flex flex-col justify-between h-full bg-[var(--bg-secondary)]">
           <div className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Reports Engine</h3>
             <p className="text-sm text-[var(--text-secondary)] leading-relaxed font-light">
@@ -1689,13 +1791,13 @@ export default function DashboardPage() {
         </div>
 
         {/* Preview block */}
-        <div className="lg:col-span-2 framer-card rounded-2xl p-6 h-full overflow-hidden flex flex-col bg-[var(--bg-secondary)] shadow-sm">
+        <div className="lg:col-span-2 card rounded-lg p-6 h-full overflow-hidden flex flex-col bg-[var(--bg-secondary)] shadow-sm">
           <div className="border-b border-[var(--border-color)] pb-3.5 mb-4 flex justify-between items-center shrink-0">
             <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Report Preview</h3>
             <span className="text-xs text-[var(--text-tertiary)] font-mono">markdown supported</span>
           </div>
 
-          <div className="flex-grow overflow-y-auto custom-scrollbar bg-[var(--bg-primary)]/40 border border-[var(--border-color)] rounded-xl p-5 text-sm text-[var(--text-secondary)] font-light leading-relaxed whitespace-pre-wrap">
+          <div className="flex-grow overflow-y-auto custom-scrollbar bg-[var(--bg-primary)]/40 border border-[var(--border-color)] rounded-lg p-5 text-sm text-[var(--text-secondary)] font-light leading-relaxed whitespace-pre-wrap">
             {isReportGenerating ? (
               <div className="space-y-4">
                 <LineSkeleton className="w-1/2 h-5" />
@@ -1729,14 +1831,14 @@ export default function DashboardPage() {
 
           <button
             onClick={markAllNotificationsRead}
-            className="btn-secondary py-2 px-3 text-xs rounded-xl flex items-center gap-1.5"
+            className="btn-secondary py-2 px-3 text-xs rounded-lg flex items-center gap-1.5"
           >
             <Check className="h-4.5 w-4.5 text-emerald-500" /> Mark all as read
           </button>
         </div>
 
         {notifications.length === 0 ? (
-          <div className="framer-card rounded-2xl p-12 text-center flex flex-col items-center justify-center border-dashed bg-[var(--bg-secondary)]">
+          <div className="card rounded-lg p-12 text-center flex flex-col items-center justify-center border-dashed bg-[var(--bg-secondary)]">
             <Bell className="h-10 w-10 text-[var(--text-tertiary)] mb-2" />
             <h4 className="text-sm text-[var(--text-primary)] font-semibold">All Clear</h4>
             <p className="text-xs text-[var(--text-tertiary)] mt-1.5">No active system warnings or alerts.</p>
@@ -1749,16 +1851,16 @@ export default function DashboardPage() {
                 <div
                   key={notif.id}
                   onClick={() => toggleNotificationRead(notif.id)}
-                  className={`p-4 rounded-2xl border transition cursor-pointer flex gap-4 items-start ${
+                  className={`p-4 rounded-lg border transition cursor-pointer flex gap-4 items-start ${
                     isRead 
                       ? 'bg-black/[0.01] border-[var(--border-color)] text-[var(--text-tertiary)]' 
-                      : 'bg-purple-900/5 border-purple-500/20 text-[var(--text-primary)] shadow-sm'
+                      : 'bg-purple-900/5 border-blue-500/20 text-[var(--text-primary)] shadow-sm'
                   }`}
                 >
-                  <div className={`h-9 w-9 rounded-xl border flex items-center justify-center shrink-0 ${
+                  <div className={`h-9 w-9 rounded-lg border flex items-center justify-center shrink-0 ${
                     notif.type === 'error' 
                       ? 'bg-red-500/10 border-red-500/20 text-red-500' 
-                      : 'bg-purple-500/10 border-purple-500/20 text-purple-500'
+                      : 'bg-blue-600/10 border-blue-500/20 text-blue-600 dark:text-blue-400'
                   }`}>
                     <Bell className="h-4.5 w-4.5" />
                   </div>
@@ -1767,7 +1869,7 @@ export default function DashboardPage() {
                     <div className="flex justify-between items-start gap-2">
                       <strong className="text-sm font-semibold">{notif.title}</strong>
                       {!isRead && (
-                        <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0 mt-1.5 animate-pulse" />
+                        <span className="h-2 w-2 rounded-md bg-blue-600 shrink-0 mt-1.5 " />
                       )}
                     </div>
                     <p className="text-xs text-[var(--text-secondary)] font-light leading-relaxed">{notif.message || notif.description}</p>
@@ -1787,7 +1889,7 @@ export default function DashboardPage() {
       <div className="max-w-2xl mx-auto space-y-6 animate-slide-up text-sm font-light">
         
         {/* Switcher details */}
-        <div className="framer-card rounded-2xl p-6 space-y-4 bg-[var(--bg-secondary)] shadow-sm">
+        <div className="card rounded-lg p-6 space-y-4 bg-[var(--bg-secondary)] shadow-sm">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] border-b border-[var(--border-color)] pb-3 mb-2">
             Active Theme Settings
           </h3>
@@ -1819,7 +1921,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="framer-card rounded-2xl p-6 space-y-4 bg-[var(--bg-secondary)] shadow-sm">
+        <div className="card rounded-lg p-6 space-y-4 bg-[var(--bg-secondary)] shadow-sm">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] border-b border-[var(--border-color)] pb-3 mb-2">
             Google Integration Settings
           </h3>
@@ -1833,7 +1935,7 @@ export default function DashboardPage() {
             </div>
             
             {gmailConnected ? (
-              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-1 rounded-full uppercase tracking-wider shrink-0 self-start sm:self-center">
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-1 rounded-md uppercase tracking-wider shrink-0 self-start sm:self-center">
                 Connected
               </span>
             ) : gmailAuthUrl ? (
@@ -1844,14 +1946,14 @@ export default function DashboardPage() {
                 <Link className="h-4 w-4" /> Authorize Account
               </a>
             ) : (
-              <span className="text-xs font-bold text-amber-600 border border-amber-500/20 bg-amber-500/10 px-3.5 py-1 rounded-full uppercase tracking-wider shrink-0 self-start sm:self-center">
+              <span className="text-xs font-bold text-amber-600 border border-amber-500/20 bg-amber-500/10 px-3.5 py-1 rounded-md uppercase tracking-wider shrink-0 self-start sm:self-center">
                 Sandbox Mode Fallback
               </span>
             )}
           </div>
 
           {!gmailConnected && !gmailAuthUrl && (
-            <div className="p-4 bg-amber-500/5 border border-amber-500/10 rounded-xl text-xs text-amber-600/90 leading-relaxed font-light">
+            <div className="p-4 bg-amber-500/5 border border-amber-500/10 rounded-lg text-xs text-amber-600/90 leading-relaxed font-light">
               <strong>Info:</strong> credentials.json file was not found in the backend root directory. AgentFlow is running on <strong>Gmail Sandbox Mode</strong> (mock mailbox). To connect a live account:
               <ol className="list-decimal pl-4 mt-2 space-y-1">
                 <li>Create OAuth Client credentials on Google Cloud Console.</li>
@@ -1863,7 +1965,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="framer-card rounded-2xl p-6 bg-[var(--bg-secondary)] space-y-4 shadow-sm">
+        <div className="card rounded-lg p-6 bg-[var(--bg-secondary)] space-y-4 shadow-sm">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] border-b border-[var(--border-color)] pb-3 mb-2">
             System Operations Environment
           </h3>
@@ -1883,7 +1985,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <span className="text-[var(--text-tertiary)] block">Active LLM API</span>
-              <code className="text-purple-600 dark:text-purple-400 font-mono mt-1.5 block">
+              <code className="text-blue-700 dark:text-blue-300 dark:text-purple-400 font-mono mt-1.5 block">
                 {llmMode === 'Gemini' ? 'Gemini Pro Model' : 'Offline Rule-based simulator'}
               </code>
             </div>
@@ -1902,8 +2004,8 @@ export default function DashboardPage() {
       <div className="absolute inset-0 framer-grid pointer-events-none z-0"></div>
       <div className="absolute inset-0 framer-grid-radial-mask pointer-events-none z-0"></div>
 
-      <div className="absolute top-[10%] left-[20%] h-[600px] w-[600px] glow-purple pointer-events-none opacity-30 z-0"></div>
-      <div className="absolute bottom-[20%] right-[10%] h-[500px] w-[500px] glow-blue pointer-events-none opacity-30 z-0"></div>
+      <div className="absolute top-[10%] left-[20%] h-[600px] w-[600px]  pointer-events-none opacity-30 z-0"></div>
+      <div className="absolute bottom-[20%] right-[10%] h-[500px] w-[500px]  pointer-events-none opacity-30 z-0"></div>
 
       {/* Guide Overlay */}
       {onboardingOpen && (
@@ -1918,7 +2020,7 @@ export default function DashboardPage() {
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="w-full max-w-sm framer-card rounded-2xl p-6 relative animate-slide-up"
+              className="w-full max-w-sm card rounded-lg p-6 relative animate-slide-up"
             >
               <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-4">
                 {editingTask ? 'Edit Workspace Task' : 'Log New Task'}
@@ -2035,13 +2137,13 @@ export default function DashboardPage() {
             </button>
 
             {backendStatus === 'online' ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 rounded-lg text-xs uppercase font-bold tracking-wider">
-                <span className="h-2 w-2 bg-purple-400 rounded-full animate-ping" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 dark:text-purple-400 rounded-lg text-xs uppercase font-bold tracking-wider">
+                <span className="h-2 w-2 bg-purple-400 rounded-md animate-ping" />
                 Live Node Online
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-lg text-xs uppercase font-bold tracking-wider">
-                <span className="h-2 w-2 bg-red-400 rounded-full" />
+                <span className="h-2 w-2 bg-red-400 rounded-md" />
                 Offline
               </span>
             )}
