@@ -20,3 +20,27 @@ if (!isValidUrl(supabaseUrl) || !supabaseAnonKey || supabaseUrl.includes('YOUR_'
 }
 
 export const supabase = createClient(finalUrl, finalKey)
+
+export const fetchWithAuth = async (url, options = {}) => {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+
+  const newOptions = { ...options }
+  let headers = newOptions.headers || {}
+
+  if (token) {
+    if (headers instanceof Headers) {
+      headers.set('Authorization', `Bearer ${token}`)
+    } else if (Array.isArray(headers)) {
+      headers.push(['Authorization', `Bearer ${token}`])
+    } else {
+      headers = {
+        ...headers,
+        'Authorization': `Bearer ${token}`
+      }
+    }
+  }
+
+  newOptions.headers = headers
+  return fetch(url, newOptions)
+}

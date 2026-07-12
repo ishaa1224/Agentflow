@@ -47,6 +47,7 @@ import {
 import Sidebar from '../components/Sidebar'
 import Onboarding from '../components/Onboarding'
 import { useAuth } from '../contexts/AuthContext'
+import { fetchWithAuth } from '../lib/supabase'
 import {
   InboxSkeleton,
   TaskListSkeleton,
