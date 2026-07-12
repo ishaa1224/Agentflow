@@ -18,6 +18,8 @@ import {
   Moon
 } from 'lucide-react'
 
+import { fetchWithAuth } from '../lib/supabase'
+
 // Backend upload api URL
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 const API_URL = `${API_BASE}/upload`
@@ -119,7 +121,7 @@ export default function UploadPage() {
     formData.append('file', file)
 
     try {
-      const response = await fetch(API_URL, {
+      const response = await fetchWithAuth(API_URL, {
         method: 'POST',
         body: formData,
       })
@@ -143,7 +145,7 @@ export default function UploadPage() {
       // Automatically analyze document content to extract tasks in the database
       if (data.text_preview) {
         setSuccess(prev => prev + ' AI Ingestion Active: Extracting tasks, meetings, and reminders...')
-        fetch(`${API_BASE}/api/documents/extract`, {
+        fetchWithAuth(`${API_BASE}/api/documents/extract`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
