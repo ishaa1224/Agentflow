@@ -17,6 +17,7 @@ from backend.agents.orchestrator import run_agent_workflow
 from backend.utils.pdf_generator import generate_report_pdf
 from backend.llm import LLMClient
 import json
+from datetime import datetime
 
 # Set up logging format
 logging.basicConfig(
@@ -74,83 +75,108 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
         )
 
     try:
-        contents = await file.read()
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read file: {str(e)}"
-        )
+        try:
+            contents = await file.read()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to read file: {str(e)}"
+            )
 
-    if len(contents) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The uploaded file is empty."
-        )
+        if len(contents) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The uploaded file is empty."
+            )
 
-    # Save to disk
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    try:
-        with open(file_path, "wb") as f:
-            f.write(contents)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to write file to local disk uploads/: {str(e)}"
-        )
+        # Save to disk
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        try:
+            with open(file_path, "wb") as f:
+                f.write(contents)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to write file to local disk uploads/: {str(e)}"
+            )
 
-    # Extract text content
-    try:
-        reader = pypdf.PdfReader(file_path)
-        extracted_text = ""
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                extracted_text += page_text + "\n"
-        
-        if not extracted_text.strip():
-            extracted_text = "[No indexable text extracted from this PDF document.]"
+        # Extract text content
+        try:
+            reader = pypdf.PdfReader(file_path)
+            extracted_text = ""
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    extracted_text += page_text + "\n"
             
-    except Exception as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+            if not extracted_text.strip():
+                extracted_text = "[No indexable text extracted from this PDF document.]"
+                
+        except Exception as e:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"PDF reading error: {str(e)}"
+            )
+
+        # Save document metadata in Supabase
+        try:
+            existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('filename', filename).execute()
+            if existing.data:
+                supabase.table('documents').update({'file_size': len(contents), 'file_path': file_path}).eq('filename', filename).execute()
+            else:
+                supabase.table('documents').insert({'user_id': user.id, 'filename': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
+        except Exception as db_err:
+            logger.error(f"Supabase write error for document metadata: {db_err}")
+
+        # Add text chunks and vectors in ChromaDB
+        try:
+            vector_store.delete_document(filename)
+            chunk_count = vector_store.add_document(filename, extracted_text)
+        except Exception as vs_err:
+            logger.error(f"ChromaDB write error: {vs_err}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Vector store indexing failed: {str(vs_err)}"
+            )
+
+        # Log activity and save success notification
+        try:
+            supabase.table('activities').insert({'user_id': user.id, "action": f"Uploaded document: {filename}"}).execute()
+            supabase.table('notifications').insert({
+                'user_id': user.id,
+                'title': 'PDF Ingested',
+                'description': f"Document '{filename}' has been successfully uploaded.",
+                'read': False
+            }).execute()
+        except Exception as log_err:
+            logger.error(f"Failed to log activity or notification for upload: {log_err}")
+
+        return {
+            "message": f"Document '{filename}' successfully ingested and indexed.",
+            "filename": filename,
+            "chunks": chunk_count,
+            "text_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
+        }
+
+    except Exception as err:
+        try:
+            supabase.table('notifications').insert({
+                'user_id': user.id,
+                'title': 'Processing Failed',
+                'description': f"Failed to ingest document '{filename}': {str(err.detail if isinstance(err, HTTPException) else err)}",
+                'read': False
+            }).execute()
+        except Exception as n_err:
+            logger.error(f"Failed to save failed upload notification: {n_err}")
+        
+        if isinstance(err, HTTPException):
+            raise err
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PDF reading error: {str(e)}"
+            detail=f"Upload failed: {str(err)}"
         )
-
-    # Save document metadata in Supabase
-    try:
-        existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('filename', filename).execute()
-        if existing.data:
-            supabase.table('documents').update({'file_size': len(contents), 'file_path': file_path}).eq('filename', filename).execute()
-        else:
-            supabase.table('documents').insert({'user_id': user.id, 'filename': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
-    except Exception as db_err:
-        logger.error(f"Supabase write error for document metadata: {db_err}")
-
-    # Add text chunks and vectors in ChromaDB
-    try:
-        vector_store.delete_document(filename)
-        chunk_count = vector_store.add_document(filename, extracted_text)
-    except Exception as vs_err:
-        logger.error(f"ChromaDB write error: {vs_err}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Vector store indexing failed: {str(vs_err)}"
-        )
-
-    # Log activity
-    try:
-        supabase.table('activities').insert({'user_id': user.id, "action": f"Uploaded document: {filename}"}).execute()
-    except Exception:
-        pass
-
-    return {
-        "message": f"Document '{filename}' successfully ingested and indexed.",
-        "filename": filename,
-        "chunks": chunk_count,
-        "text_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
-    }
 
 @app.get("/documents")
 def get_documents(user: Any = Depends(get_current_user)):
@@ -252,12 +278,18 @@ def extract_document_insights(payload: dict, user: Any = Depends(get_current_use
                 "time": r.get("time", "")
             }).execute()
             
-        # Log activity
+        # Log activity and save notification
         try:
             total_items = len(tasks) + len(meetings) + len(reminders)
             supabase.table('activities').insert({'user_id': user.id, "action": f"AI Document Analysis extracted {total_items} items."}).execute()
-        except Exception:
-            pass
+            supabase.table('notifications').insert({
+                'user_id': user.id,
+                'title': 'Tasks Extracted',
+                'description': f"Successfully extracted {len(tasks)} tasks, {len(meetings)} meetings, and {len(reminders)} reminders from the document.",
+                'read': False
+            }).execute()
+        except Exception as log_err:
+            logger.error(f"Failed to log activity or notification for extraction: {log_err}")
             
         return {
             "success": True,
@@ -505,11 +537,72 @@ def get_chat_history(user: Any = Depends(get_current_user)):
 
 # ================= NOTIFICATIONS ENGINE =================
 
+def check_and_create_deadline_notifications(user_id: str):
+    """
+    Checks active uncompleted tasks and creates upcoming/overdue deadline notifications.
+    """
+    try:
+        tasks_res = supabase.table('tasks').select('*').eq('user_id', user_id).eq('completed', False).execute()
+        tasks = tasks_res.data
+        now = datetime.utcnow()
+        
+        for task in tasks:
+            if not task.get('deadline'):
+                if task.get('priority') == "High":
+                    title = "High Priority Warning"
+                    desc = f"Task '{task['title']}' has High priority but no deadline set."
+                    existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', title).eq('description', desc).execute()
+                    if not existing.data:
+                        supabase.table('notifications').insert({
+                            'user_id': user_id,
+                            'title': title,
+                            'description': desc,
+                            'read': False
+                        }).execute()
+                continue
+                
+            try:
+                deadline_str = task['deadline']
+                if "T" in deadline_str:
+                    task_date = datetime.fromisoformat(deadline_str)
+                else:
+                    task_date = datetime.strptime(deadline_str, "%Y-%m-%d")
+                
+                time_diff = task_date - now
+                if time_diff.total_seconds() < 0:
+                    title = "Overdue Deadline"
+                    desc = f"Task '{task['title']}' is overdue! (Due: {deadline_str})"
+                    existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', title).eq('description', desc).execute()
+                    if not existing.data:
+                        supabase.table('notifications').insert({
+                            'user_id': user_id,
+                            'title': title,
+                            'description': desc,
+                            'read': False
+                        }).execute()
+                elif 0 <= time_diff.total_seconds() <= 129600: # 36 hours
+                    title = "Upcoming Deadline"
+                    desc = f"Task '{task['title']}' is due soon. (Due: {deadline_str})"
+                    existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', title).eq('description', desc).execute()
+                    if not existing.data:
+                        supabase.table('notifications').insert({
+                            'user_id': user_id,
+                            'title': title,
+                            'description': desc,
+                            'read': False
+                        }).execute()
+            except Exception as parse_err:
+                logger.debug(f"Failed to parse task deadline: {parse_err}")
+    except Exception as e:
+        logger.error(f"Error checking deadlines for notifications: {e}")
+
 @app.get("/api/notifications")
 def get_notifications(user: Any = Depends(get_current_user)):
     """
     Aggregates active deadlines and alerts from Supabase.
     """
+    # Dynamically generate upcoming/overdue alerts
+    check_and_create_deadline_notifications(user.id)
     try:
         notifications = supabase.table('notifications').select('*').eq('user_id', user.id).order('timestamp', desc=True).execute()
         return notifications.data
@@ -525,17 +618,6 @@ def mark_notification_read(notif_id: int, user: Any = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 # ================= ACTIVITIES ENGINE =================
-
-@app.get("/api/notifications")
-def get_notifications(user: Any = Depends(get_current_user)):
-    """
-    Retrieves all notifications (reminders/alerts) in the system.
-    """
-    try:
-        notifications = supabase.table('notifications').select('*').eq('user_id', user.id).order('timestamp', desc=True).execute()
-        return notifications.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/activities")
 def get_activities(user: Any = Depends(get_current_user)):
@@ -568,7 +650,7 @@ def generate_report(user: Any = Depends(get_current_user)):
     """
     from backend.agents.report_agent import report_agent_node
     dummy_state = {
-        "messages": [], "query": "generate report",
+        "messages": [], "query": "generate report", "user_id": user.id,
         "tasks": [], "emails": [], "reports": [], "notifications": [],
         "context": "", "response": "", "next_agent": ""
     }

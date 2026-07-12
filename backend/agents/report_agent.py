@@ -15,15 +15,16 @@ def report_agent_node(state: AgentState) -> AgentState:
     logger.info("Executing Report Agent Node...")
     
     # 1. Fetch tasks from Supabase
+    user_id = state.get("user_id")
     try:
-        tasks_res = supabase.table('tasks').select('*').execute()
+        tasks_res = supabase.table('tasks').select('*').eq('user_id', user_id).execute()
         tasks_dicts = tasks_res.data
     except Exception as e:
         logger.error(f"Failed to fetch tasks for report: {e}")
         tasks_dicts = []
         
     # 2. Fetch email headers from Gmail service
-    emails = gmail_service.fetch_recent_emails(max_results=3)
+    emails = gmail_service.fetch_recent_emails(user_id) if user_id else []
     
     # 3. Formulate prompt for LLM report compiling
     tasks_summary_str = ""

@@ -17,7 +17,8 @@ def notification_agent_node(state: AgentState) -> AgentState:
     
     notifications = []
     try:
-        tasks_res = supabase.table('tasks').select('*').eq('completed', False).execute()
+        user_id = state.get("user_id")
+        tasks_res = supabase.table('tasks').select('*').eq('user_id', user_id).eq('completed', False).execute()
         tasks = tasks_res.data
         now = datetime.utcnow()
         
@@ -68,11 +69,16 @@ def notification_agent_node(state: AgentState) -> AgentState:
                 
         # Persist new notifications to Supabase if they don't exist
         for notif in notifications:
-            # Check if this exact message exists to prevent duplicates (naive approach)
-            existing = supabase.table('notifications').select('*').eq('message', notif['message']).execute()
+            # Check if this exact message exists to prevent duplicates
+            existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', notif['title']).eq('description', notif['message']).execute()
             if not existing.data:
                 try:
-                    supabase.table('notifications').insert({"message": notif['message'], "read": False}).execute()
+                    supabase.table('notifications').insert({
+                        "user_id": user_id,
+                        "title": notif['title'],
+                        "description": notif['message'],
+                        "read": False
+                    }).execute()
                 except Exception as insert_err:
                     logger.error(f"Failed to insert notification into Supabase: {insert_err}")
                 

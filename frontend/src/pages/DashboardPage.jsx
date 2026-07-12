@@ -19,6 +19,7 @@ import {
   Send,
   Link,
   ChevronRight,
+  ChevronLeft,
   Info,
   Calendar as CalendarIcon,
   Layers,
@@ -95,6 +96,7 @@ export default function DashboardPage() {
   const [starredEmails, setStarredEmails] = useState(new Set())
   const [selectedCalendarDate, setSelectedCalendarDate] = useState('2026-06-30')
   const [readNotifications, setReadNotifications] = useState(new Set())
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date(2026, 5, 1))
   
   // Chat State
   const [chatHistory, setChatHistory] = useState([])
@@ -439,11 +441,11 @@ export default function DashboardPage() {
       if (data.text_preview) {
         fetchActivities()
 
-        fetchWithAuth(`${API_BASE}/api/chat`, {
+        fetchWithAuth(`${API_BASE}/api/documents/extract`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            query: `Extract all tasks, deadlines, meetings, priorities, and action items from this document text: ${data.text_preview}` 
+            text: data.text_preview 
           })
         }).then(res => {
           if (res.ok) {
@@ -648,15 +650,74 @@ export default function DashboardPage() {
 
   // --- Calendar Date Picker utils ---
   const getCalendarDays = () => {
-    // June 2026. Starts on Monday, 30 Days.
-    return Array.from({ length: 30 }, (_, i) => {
-      const day = i + 1
-      const dayStr = day < 10 ? `0${day}` : `${day}`
-      return {
+    const year = currentMonthDate.getFullYear()
+    const month = currentMonthDate.getMonth()
+
+    const firstDayIndex = new Date(year, month, 1).getDay()
+    const totalDays = new Date(year, month + 1, 0).getDate()
+    const prevTotalDays = new Date(year, month, 0).getDate()
+
+    const cells = []
+
+    // Previous month's trailing days
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const day = prevTotalDays - i
+      const prevMonth = month === 0 ? 11 : month - 1
+      const prevYear = month === 0 ? year - 1 : year
+      const mStr = (prevMonth + 1).toString().padStart(2, '0')
+      const dStr = day.toString().padStart(2, '0')
+      cells.push({
         dayNum: day,
-        dateString: `2026-06-${dayStr}`,
-        labelName: 'Jun'
-      }
+        dateString: `${prevYear}-${mStr}-${dStr}`,
+        isCurrentMonth: false
+      })
+    }
+
+    // Current month's days
+    for (let day = 1; day <= totalDays; day++) {
+      const mStr = (month + 1).toString().padStart(2, '0')
+      const dStr = day.toString().padStart(2, '0')
+      cells.push({
+        dayNum: day,
+        dateString: `${year}-${mStr}-${dStr}`,
+        isCurrentMonth: true
+      })
+    }
+
+    // Next month's leading days to complete 42 cell grid
+    const remaining = 42 - cells.length
+    for (let day = 1; day <= remaining; day++) {
+      const nextMonth = month === 11 ? 0 : month + 1
+      const nextYear = month === 11 ? year + 1 : year
+      const mStr = (nextMonth + 1).toString().padStart(2, '0')
+      const dStr = day.toString().padStart(2, '0')
+      cells.push({
+        dayNum: day,
+        dateString: `${nextYear}-${mStr}-${dStr}`,
+        isCurrentMonth: false
+      })
+    }
+
+    return cells
+  }
+
+  const handlePrevMonth = () => {
+    setCurrentMonthDate(prev => {
+      const prevDate = new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+      const y = prevDate.getFullYear()
+      const m = (prevDate.getMonth() + 1).toString().padStart(2, '0')
+      setSelectedCalendarDate(`${y}-${m}-01`)
+      return prevDate
+    })
+  }
+
+  const handleNextMonth = () => {
+    setCurrentMonthDate(prev => {
+      const nextDate = new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+      const y = nextDate.getFullYear()
+      const m = (nextDate.getMonth() + 1).toString().padStart(2, '0')
+      setSelectedCalendarDate(`${y}-${m}-01`)
+      return nextDate
     })
   }
 
@@ -713,6 +774,30 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Real Statistics Row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="card rounded-lg p-5 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] block">Indexed Documents</span>
+              <span className="text-3xl font-semibold text-[var(--text-primary)] mt-2 block">{documents.length}</span>
+            </div>
+            <div className="card rounded-lg p-5 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] block">Total Tasks</span>
+              <span className="text-3xl font-semibold text-[var(--text-primary)] mt-2 block">{tasks.length}</span>
+            </div>
+            <div className="card rounded-lg p-5 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] block">Completed Tasks</span>
+              <span className="text-3xl font-semibold text-emerald-500 mt-2 block">
+                {completedTasks.length} <span className="text-xs font-normal text-[var(--text-tertiary)]">({completionPercent}%)</span>
+              </span>
+            </div>
+            <div className="card rounded-lg p-5 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] block">Upcoming Deadlines</span>
+              <span className="text-3xl font-semibold text-blue-500 mt-2 block">
+                {pendingTasks.filter(t => t.deadline).length}
+              </span>
             </div>
           </div>
 
@@ -1617,6 +1702,24 @@ export default function DashboardPage() {
       return task.deadline.includes(selectedCalendarDate)
     })
 
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ]
+    const currentMonthName = monthNames[currentMonthDate.getMonth()]
+    const currentYear = currentMonthDate.getFullYear()
+
+    // Helper to get friendly selected date label
+    const getSelectedDateLabel = () => {
+      const parts = selectedCalendarDate.split('-')
+      if (parts.length !== 3) return selectedCalendarDate
+      const y = parseInt(parts[0])
+      const m = parseInt(parts[1]) - 1
+      const d = parseInt(parts[2])
+      const dateObj = new Date(y, m, d)
+      return `${monthNames[dateObj.getMonth()]} ${d}, ${y}`
+    }
+
     return (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 h-[calc(100vh-8rem)] min-h-[500px] animate-slide-up text-sm font-light">
         
@@ -1629,8 +1732,22 @@ export default function DashboardPage() {
               <h2 className="text-xl font-semibold text-[var(--text-primary)] tracking-tight">Timeline & Deadlines</h2>
               <p className="text-sm text-[var(--text-secondary)] mt-1">Select a date to view scheduled tasks.</p>
             </div>
-            <div className="bg-[var(--bg-primary)] px-4 py-2 rounded-lg border border-[var(--border-color)] font-mono text-sm shadow-sm font-semibold text-[var(--text-primary)]">
-              June 2026
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handlePrevMonth}
+                className="p-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition shadow-sm"
+              >
+                <ChevronLeft className="h-4.5 w-4.5" />
+              </button>
+              <div className="bg-[var(--bg-primary)] px-4 py-2 rounded-lg border border-[var(--border-color)] font-mono text-sm shadow-sm font-semibold text-[var(--text-primary)] min-w-[130px] text-center">
+                {currentMonthName} {currentYear}
+              </div>
+              <button 
+                onClick={handleNextMonth}
+                className="p-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition shadow-sm"
+              >
+                <ChevronRight className="h-4.5 w-4.5" />
+              </button>
             </div>
           </div>
 
@@ -1654,13 +1771,20 @@ export default function DashboardPage() {
                 
                 return (
                   <div
-                    key={cell.dayNum}
-                    onClick={() => setSelectedCalendarDate(cell.dateString)}
+                    key={cell.dateString}
+                    onClick={() => {
+                      setSelectedCalendarDate(cell.dateString)
+                      // Auto-navigate month view if clicking cell from adjacent month
+                      const cellDate = new Date(cell.dateString)
+                      if (cellDate.getMonth() !== currentMonthDate.getMonth()) {
+                        setCurrentMonthDate(new Date(cellDate.getFullYear(), cellDate.getMonth(), 1))
+                      }
+                    }}
                     className={`rounded-xl border cursor-pointer p-2 sm:p-3 flex flex-col justify-between transition-all duration-200 relative group overflow-hidden ${
                       isSelected
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md ring-1 ring-blue-500/50'
                         : 'border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-blue-400/50 hover:bg-[var(--bg-primary)]'
-                    }`}
+                    } ${!cell.isCurrentMonth ? 'opacity-40' : ''}`}
                   >
                     <span className={`text-sm font-semibold w-7 h-7 flex items-center justify-center rounded-full ${
                       isSelected 
@@ -1702,7 +1826,7 @@ export default function DashboardPage() {
             </span>
             <h3 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight flex items-center gap-2">
               <CalendarIcon className="h-6 w-6 text-blue-500" />
-              June {selectedCalendarDate.split('-')[2]}
+              {getSelectedDateLabel()}
             </h3>
           </div>
 

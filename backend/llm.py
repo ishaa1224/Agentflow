@@ -289,25 +289,70 @@ class LLMClient:
             is_report = "report" in prompt_lower or "summary" in prompt_lower
             
         if is_report:
-            return (
-                "# AgentFlow AI - Weekly Productivity Report\n\n"
-                "## Executive Summary\n"
-                "This report aggregates active deliverables, task completion states, and recent email updates "
-                "across your workspace. Overall productivity velocity is running on target.\n\n"
-                "## Workspace Metrics\n"
-                "- **Total Ingested Documents**: 3 technical assets\n"
-                "- **Pending Action Items**: 4 items\n"
-                "- **Completed Deliverables**: 2 items\n"
-                "- **Critical Overdue Alerts**: 0 alerts\n\n"
-                "## Active Task Log\n"
-                "1. **Create SQLAlchemy schema migrations** (Priority: High) - Due: Tomorrow at 5 PM\n"
-                "2. **Refactor dashboard styles to glassmorphism** (Priority: High) - Due: Next Friday\n"
-                "3. **Clear ChromaDB index files** (Priority: Medium) - Due: July 1st\n\n"
-                "## Email Activity Summary\n"
-                "- Received infrastructure specs from Sarah Jenkins.\n"
-                "- Client feedback on UI dark theme mockups from Michael Vance.\n\n"
-                "*Compiled automatically by AgentFlow AI Report Agent.*"
-            )
+            # Parse tasks and emails from the prompt dynamically!
+            tasks_lines = []
+            emails_lines = []
+            
+            in_tasks = False
+            in_emails = False
+            for line in prompt.split('\n'):
+                l_str = line.strip()
+                if "active tasks:" in l_str.lower():
+                    in_tasks = True
+                    in_emails = False
+                    continue
+                elif "recent emails:" in l_str.lower():
+                    in_tasks = False
+                    in_emails = True
+                    continue
+                elif l_str.lower().startswith("report requirements:"):
+                    in_tasks = False
+                    in_emails = False
+                    continue
+                
+                if in_tasks and l_str.startswith("-"):
+                    tasks_lines.append(l_str)
+                elif in_emails and l_str.startswith("-"):
+                    emails_lines.append(l_str)
+            
+            total_tasks = len(tasks_lines)
+            completed_tasks = sum(1 for t in tasks_lines if "completed" in t.lower() or "status: completed" in t.lower())
+            pending_tasks = total_tasks - completed_tasks
+            high_priority = sum(1 for t in tasks_lines if "priority: high" in t.lower())
+            
+            # Compile markdown
+            md = []
+            md.append("# AgentFlow AI - Executive Productivity Report")
+            md.append("")
+            md.append("## Executive Summary")
+            md.append("This report aggregates active deliverables, task completion states, and recent email updates across your workspace. Overall productivity velocity is running on target.")
+            md.append("")
+            md.append("## Workspace Metrics")
+            md.append(f"- **Total Tracked Tasks**: {total_tasks} items")
+            md.append(f"- **Completed Deliverables**: {completed_tasks} items")
+            md.append(f"- **Pending Action Items**: {pending_tasks} items")
+            md.append(f"- **High Priority Critical Items**: {high_priority} items")
+            if total_tasks > 0:
+                percent = int((completed_tasks / total_tasks) * 100)
+                md.append(f"- **Productivity Rate**: {percent}%")
+            md.append("")
+            md.append("## Tasks Analytics")
+            if tasks_lines:
+                for t in tasks_lines:
+                    md.append(t)
+            else:
+                md.append("- No tasks found in workspace database.")
+            md.append("")
+            md.append("## Communication Summary")
+            if emails_lines:
+                for e in emails_lines:
+                    md.append(e)
+            else:
+                md.append("- No recent emails.")
+            md.append("")
+            md.append("*Compiled automatically by AgentFlow AI Report Agent.*")
+            
+            return "\n".join(md)
 
         # 5. GENERAL/DEFAULT FALLBACK CHAT
         return (
