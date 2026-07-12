@@ -61,7 +61,7 @@ def read_root():
 # ================= DOCUMENT INGESTION & RAG ENDPOINTS =================
 
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_current_user)):
     """
     Ingests a PDF file, parses its text, stores document metadata in Supabase,
     and indexes embeddings in the persistent ChromaDB collection.
