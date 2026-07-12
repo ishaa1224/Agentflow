@@ -122,11 +122,11 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
 
         # Save document metadata in Supabase
         try:
-            existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('filename', filename).execute()
+            existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('file_name', filename).execute()
             if existing.data:
-                supabase.table('documents').update({'file_size': len(contents), 'file_path': file_path}).eq('filename', filename).execute()
+                supabase.table('documents').update({'file_size': len(contents), 'file_path': file_path}).eq('file_name', filename).execute()
             else:
-                supabase.table('documents').insert({'user_id': user.id, 'filename': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
+                supabase.table('documents').insert({'user_id': user.id, 'file_name': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
         except Exception as db_err:
             logger.error(f"Supabase write error for document metadata: {db_err}")
 
@@ -204,13 +204,13 @@ def delete_document(doc_id: int, user: Any = Depends(get_current_user)):
         doc = doc_res.data[0]
 
         # Wipe vectors
-        vector_store.delete_document(doc['filename'])
+        vector_store.delete_document(doc['file_name'])
         # Delete file on disk if exists
         if os.path.exists(doc['file_path']):
             os.remove(doc['file_path'])
             
         supabase.table('documents').delete().eq('id', doc_id).execute()
-        return {"status": "success", "message": f"Successfully deleted document '{doc['filename']}'."}
+        return {"status": "success", "message": f"Successfully deleted document '{doc['file_name']}'."}
     except HTTPException:
         raise
     except Exception as e:

@@ -888,15 +888,15 @@ export default function DashboardPage() {
                     <div className="flex items-start gap-3 justify-between">
                       <div className="flex items-center gap-3 min-w-0">
                         <FileText className="h-6 w-6 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <h4 className="font-semibold text-[var(--text-primary)] text-sm truncate max-w-[130px]" title={doc.filename}>
-                          {doc.filename}
+                        <h4 className="font-semibold text-[var(--text-primary)] text-sm truncate max-w-[130px]" title={doc.file_name}>
+                          {doc.file_name}
                         </h4>
                       </div>
                       
                       <button
                         onClick={() => {
                           setActiveTab('rag')
-                          executeChatQuery(`Summarize document: ${doc.filename}`)
+                          executeChatQuery(`Summarize document: ${doc.file_name}`)
                         }}
                         className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-bold"
                       >
@@ -1046,7 +1046,7 @@ export default function DashboardPage() {
 // 2. Knowledge Base (Documents listing + uploads)
   const renderDocuments = () => {
     const filteredDocs = documents.filter(doc => 
-      doc.filename.toLowerCase().includes(documentSearchQuery.toLowerCase())
+      doc.file_name.toLowerCase().includes(documentSearchQuery.toLowerCase())
     )
 
     return (
@@ -1172,7 +1172,7 @@ export default function DashboardPage() {
                       <FileText className="h-6 w-6" />
                     </div>
                     <div className="min-w-0">
-                      <h4 className="text-[var(--text-primary)] truncate font-semibold text-base">{doc.filename}</h4>
+                      <h4 className="text-[var(--text-primary)] truncate font-semibold text-base">{doc.file_name}</h4>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-[var(--text-tertiary)] font-mono bg-[var(--bg-secondary)] px-2 py-0.5 rounded-md">
                           {(doc.file_size / (1024 * 1024)).toFixed(2)} MB
@@ -1188,7 +1188,7 @@ export default function DashboardPage() {
                     <button
                       onClick={() => {
                         setActiveTab('rag')
-                        executeChatQuery(`Summarize document: ${doc.filename}`)
+                        executeChatQuery(`Summarize document: ${doc.file_name}`)
                       }}
                       className="bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 py-2 px-4 rounded-lg text-sm flex items-center gap-2 font-medium transition-colors"
                       title="Summarize document via AI"
@@ -1198,7 +1198,7 @@ export default function DashboardPage() {
                     </button>
                     
                     <button
-                      onClick={() => handleDeleteDoc(doc.id, doc.filename)}
+                      onClick={() => handleDeleteDoc(doc.id, doc.file_name)}
                       className="text-[var(--text-tertiary)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 p-2.5 border border-transparent hover:border-red-200 dark:hover:border-red-500/30 rounded-lg transition-colors"
                       title="Delete from knowledge base"
                     >
