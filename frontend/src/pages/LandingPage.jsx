@@ -212,31 +212,11 @@ export default function LandingPage() {
               <div className="h-3 w-3 rounded-full bg-slate-300 dark:bg-slate-600"></div>
               <div className="h-3 w-3 rounded-full bg-slate-300 dark:bg-slate-600"></div>
             </div>
-            <div className="p-6 md:p-10 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-              <div className="col-span-2 space-y-4">
-                <div className="h-4 w-1/3 bg-[var(--border-color)] rounded animate-pulse"></div>
-                <div className="h-2 w-3/4 bg-[var(--border-color)] rounded animate-pulse"></div>
-                <div className="h-2 w-1/2 bg-[var(--border-color)] rounded animate-pulse"></div>
-                <div className="mt-8 border border-[var(--border-color)] rounded-lg p-4 bg-[var(--bg-primary)]">
-                  <div className="h-3 w-1/4 bg-blue-500/20 rounded mb-3"></div>
-                  <div className="space-y-2">
-                    <div className="h-2 w-full bg-[var(--border-color)] rounded"></div>
-                    <div className="h-2 w-5/6 bg-[var(--border-color)] rounded"></div>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="border border-[var(--border-color)] rounded-lg p-4">
-                  <div className="h-3 w-1/2 bg-[var(--border-color)] rounded mb-3"></div>
-                  <div className="h-2 w-full bg-[var(--border-color)] rounded mb-2"></div>
-                  <div className="h-2 w-full bg-[var(--border-color)] rounded"></div>
-                </div>
-                <div className="border border-[var(--border-color)] rounded-lg p-4">
-                  <div className="h-3 w-1/3 bg-[var(--border-color)] rounded mb-3"></div>
-                  <div className="h-2 w-full bg-[var(--border-color)] rounded"></div>
-                </div>
-              </div>
-            </div>
+            <img 
+              src="/dashboard_preview.png" 
+              alt="AgentFlow Premium Interface" 
+              className="w-full h-auto object-cover border-none"
+            />
           </div>
         </div>
       </section>
@@ -272,8 +252,37 @@ export default function LandingPage() {
 
           {/* Feature 1 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-            <div className="order-2 md:order-1 border border-[var(--border-color)] bg-[var(--bg-secondary)] rounded-xl p-8 aspect-[4/3] flex items-center justify-center">
-               <Files className="h-24 w-24 text-[var(--border-color)]" />
+            <div className="order-2 md:order-1 border border-[var(--border-color)] bg-[var(--bg-secondary)] rounded-xl p-6 shadow-md space-y-4">
+              <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-3">
+                <span className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-wider">Document Storage</span>
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400 rounded">2 Active Docs</span>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-color)]">
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded">
+                    <Files className="h-5 w-5" />
+                  </div>
+                  <div className="flex-grow min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text-primary)] truncate">infrastructure_specs.pdf</p>
+                    <div className="w-full bg-[var(--border-color)] h-1.5 rounded-full mt-2 overflow-hidden">
+                      <div className="bg-blue-500 h-full rounded-full w-full" />
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Indexed</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-color)]">
+                  <div className="p-2 bg-purple-100 dark:bg-purple-900/30 text-purple-600 rounded">
+                    <Files className="h-5 w-5" />
+                  </div>
+                  <div className="flex-grow min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text-primary)] truncate">developer_onboarding.pdf</p>
+                    <div className="w-full bg-[var(--border-color)] h-1.5 rounded-full mt-2 overflow-hidden">
+                      <div className="bg-purple-500 h-full rounded-full w-[80%]" />
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium text-[var(--text-secondary)]">80% Ingested</span>
+                </div>
+              </div>
             </div>
             <div className="order-1 md:order-2 space-y-4">
               <div className="h-12 w-12 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 flex items-center justify-center mb-6">
@@ -297,15 +306,50 @@ export default function LandingPage() {
                 Our automations capture priorities, deadlines, and deliverables directly from unstructured documents, creating synced task entries automatically in your workspace.
               </p>
             </div>
-            <div className="border border-[var(--border-color)] bg-[var(--bg-secondary)] rounded-xl p-8 aspect-[4/3] flex items-center justify-center">
-               <CheckSquare className="h-24 w-24 text-[var(--border-color)]" />
+            <div className="border border-[var(--border-color)] bg-[var(--bg-secondary)] rounded-xl p-6 shadow-md space-y-4">
+              <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-3">
+                <span className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-wider">Extracted Action Items</span>
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950/30 dark:text-blue-400 rounded">AI Autopilot</span>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-color)]">
+                  <input type="checkbox" defaultChecked className="mt-1 accent-blue-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)] line-through opacity-70">Initialize Supabase local DB schemas</p>
+                    <span className="inline-block text-[10px] font-bold text-red-500 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded mt-1.5">Priority: High</span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-color)]">
+                  <input type="checkbox" className="mt-1 accent-blue-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">Setup backend CORS configuration middleware</p>
+                    <span className="inline-block text-[10px] font-bold text-amber-500 bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded mt-1.5">Priority: Medium</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Feature 3 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-            <div className="order-2 md:order-1 border border-[var(--border-color)] bg-[var(--bg-secondary)] rounded-xl p-8 aspect-[4/3] flex items-center justify-center">
-               <MessageSquare className="h-24 w-24 text-[var(--border-color)]" />
+            <div className="order-2 md:order-1 border border-[var(--border-color)] bg-[var(--bg-secondary)] rounded-xl p-6 shadow-md space-y-4">
+              <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-3">
+                <span className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-wider">Semantic Copilot</span>
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              </div>
+              <div className="space-y-3 font-light text-xs leading-relaxed">
+                <div className="p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-color)] max-w-[85%] self-start text-left">
+                  <p className="font-semibold text-blue-600 dark:text-blue-400 mb-1">User Query</p>
+                  <p className="text-[var(--text-primary)]">What is the production deployment database URL?</p>
+                </div>
+                <div className="p-3 bg-blue-50/50 dark:bg-blue-950/10 rounded-lg border border-blue-500/20 max-w-[90%] ml-auto text-left">
+                  <p className="font-semibold text-purple-600 dark:text-purple-400 mb-1">Agent Response</p>
+                  <p className="text-[var(--text-primary)]">Based on `infrastructure_specs.pdf`, the database URL is hosted on Render PG cluster with SSL mode enabled.</p>
+                  <div className="mt-2 text-[10px] text-[var(--text-tertiary)] border-t border-[var(--border-color)] pt-1">
+                    Source: <span className="font-mono text-blue-500">infrastructure_specs.pdf: L127</span>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="order-1 md:order-2 space-y-4">
               <div className="h-12 w-12 rounded-lg bg-purple-50 dark:bg-purple-900/20 text-purple-600 flex items-center justify-center mb-6">
