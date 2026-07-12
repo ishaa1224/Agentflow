@@ -61,7 +61,18 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const { signOut } = useAuth()
+  const { signOut, user } = useAuth()
+
+  const getUserName = () => {
+    if (!user) return 'User'
+    if (user.user_metadata?.full_name) return user.user_metadata.full_name
+    if (user.user_metadata?.name) return user.user_metadata.name
+    if (user.email) {
+      const emailName = user.email.split('@')[0]
+      return emailName.charAt(0).toUpperCase() + emailName.slice(1)
+    }
+    return 'User'
+  }
   
   const handleLogout = async () => {
     try {
@@ -743,7 +754,7 @@ export default function DashboardPage() {
             
             <div className="space-y-4">
               <h2 className="text-5xl md:text-6xl font-light text-[var(--text-primary)] tracking-tight leading-tight">
-                Good Evening, Isha 👋
+                Good Evening, {getUserName()} 👋
               </h2>
               
               <p className="text-lg text-[var(--text-secondary)] font-light max-w-xl">
