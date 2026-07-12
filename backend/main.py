@@ -124,9 +124,9 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
         try:
             existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('file_name', filename).execute()
             if existing.data:
-                supabase.table('documents').update({'file_size': len(contents), 'file_path': file_path}).eq('file_name', filename).execute()
+                supabase.table('documents').update({'upload_date': datetime.utcnow().isoformat()}).eq('file_name', filename).execute()
             else:
-                supabase.table('documents').insert({'user_id': user.id, 'file_name': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
+                supabase.table('documents').insert({'user_id': user.id, 'file_name': filename}).execute()
         except Exception as db_err:
             logger.error(f"Supabase write error for document metadata: {db_err}")
 
@@ -146,9 +146,8 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
             supabase.table('activities').insert({'user_id': user.id, "action": f"Uploaded document: {filename}"}).execute()
             supabase.table('notifications').insert({
                 'user_id': user.id,
-                'title': 'PDF Ingested',
-                'description': f"Document '{filename}' has been successfully uploaded.",
-                'read': False
+                'message': f"PDF Ingested: Document '{filename}' has been successfully uploaded.",
+                'is_read': False
             }).execute()
         except Exception as log_err:
             logger.error(f"Failed to log activity or notification for upload: {log_err}")
@@ -164,9 +163,8 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
         try:
             supabase.table('notifications').insert({
                 'user_id': user.id,
-                'title': 'Processing Failed',
-                'description': f"Failed to ingest document '{filename}': {str(err.detail if isinstance(err, HTTPException) else err)}",
-                'read': False
+                'message': f"Processing Failed: Could not ingest document '{filename}': {str(err.detail if isinstance(err, HTTPException) else err)}",
+                'is_read': False
             }).execute()
         except Exception as n_err:
             logger.error(f"Failed to save failed upload notification: {n_err}")
@@ -205,9 +203,10 @@ def delete_document(doc_id: int, user: Any = Depends(get_current_user)):
 
         # Wipe vectors
         vector_store.delete_document(doc['file_name'])
-        # Delete file on disk if exists
-        if os.path.exists(doc['file_path']):
-            os.remove(doc['file_path'])
+        # Delete file on disk if exists (file_path not stored in DB, skip)
+        file_path_on_disk = doc.get('file_path', '')
+        if file_path_on_disk and os.path.exists(file_path_on_disk):
+            os.remove(file_path_on_disk)
             
         supabase.table('documents').delete().eq('id', doc_id).execute()
         return {"status": "success", "message": f"Successfully deleted document '{doc['file_name']}'."}
@@ -272,10 +271,10 @@ def extract_document_insights(payload: dict, user: Any = Depends(get_current_use
             
         # Save reminders to notifications table
         for r in reminders:
-            supabase.table('notifications').insert({'user_id': user.id, 
-                "title": r.get("title", "Reminder"),
-                "description": r.get("description", ""),
-                "time": r.get("time", "")
+            supabase.table('notifications').insert({
+                'user_id': user.id,
+                'message': f"Reminder: {r.get('title', 'Reminder')} - {r.get('description', '')} ({r.get('time', '')})",
+                'is_read': False
             }).execute()
             
         # Log activity and save notification
@@ -284,9 +283,8 @@ def extract_document_insights(payload: dict, user: Any = Depends(get_current_use
             supabase.table('activities').insert({'user_id': user.id, "action": f"AI Document Analysis extracted {total_items} items."}).execute()
             supabase.table('notifications').insert({
                 'user_id': user.id,
-                'title': 'Tasks Extracted',
-                'description': f"Successfully extracted {len(tasks)} tasks, {len(meetings)} meetings, and {len(reminders)} reminders from the document.",
-                'read': False
+                'message': f"Tasks Extracted: Successfully extracted {len(tasks)} tasks, {len(meetings)} meetings, and {len(reminders)} reminders from the document.",
+                'is_read': False
             }).execute()
         except Exception as log_err:
             logger.error(f"Failed to log activity or notification for extraction: {log_err}")
@@ -326,11 +324,12 @@ def create_task(title: str, description: Optional[str] = "", deadline: Optional[
         
     try:
         task_data = {
+            "user_id": user.id,
             "title": title,
             "description": description,
             "deadline": deadline,
             "priority": priority,
-            "completed": False
+            "status": "todo"
         }
         result = supabase.table('tasks').insert(task_data).execute()
         
@@ -362,7 +361,7 @@ def update_task(task_id: int, title: Optional[str] = None, description: Optional
     if priority is not None:
         updates['priority'] = priority
     if completed is not None:
-        updates['completed'] = completed
+        updates['status'] = 'done' if completed else 'todo'
         
     try:
         result = supabase.table('tasks').update(updates).eq('id', task_id).execute()
@@ -407,19 +406,20 @@ def toggle_task_complete(task_id: int, user: Any = Depends(get_current_user)):
     Toggles completion status of a task.
     """
     try:
-        task_res = supabase.table('tasks').select('completed', 'title').eq('id', task_id).execute()
+        task_res = supabase.table('tasks').select('status,title').eq('id', task_id).execute()
         if not task_res.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Task not found."
             )
-        new_completed = not task_res.data[0]['completed']
+        current_status = task_res.data[0].get('status', 'todo')
+        new_status = 'todo' if current_status == 'done' else 'done'
         title = task_res.data[0].get('title', '')
         
-        result = supabase.table('tasks').update({'completed': new_completed}).eq('id', task_id).execute()
+        result = supabase.table('tasks').update({'status': new_status}).eq('id', task_id).execute()
         
         # Log activity
-        status_text = "Completed" if new_completed else "Reopened"
+        status_text = "Completed" if new_status == 'done' else "Reopened"
         try:
             supabase.table('activities').insert({'user_id': user.id, "action": f"{status_text} task: {title}"}).execute()
         except Exception:
@@ -542,22 +542,20 @@ def check_and_create_deadline_notifications(user_id: str):
     Checks active uncompleted tasks and creates upcoming/overdue deadline notifications.
     """
     try:
-        tasks_res = supabase.table('tasks').select('*').eq('user_id', user_id).eq('completed', False).execute()
+        tasks_res = supabase.table('tasks').select('*').eq('user_id', user_id).neq('status', 'done').execute()
         tasks = tasks_res.data
         now = datetime.utcnow()
         
         for task in tasks:
             if not task.get('deadline'):
                 if task.get('priority') == "High":
-                    title = "High Priority Warning"
-                    desc = f"Task '{task['title']}' has High priority but no deadline set."
-                    existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', title).eq('description', desc).execute()
+                    msg = f"High Priority Warning: Task '{task['title']}' has High priority but no deadline set."
+                    existing = supabase.table('notifications').select('id').eq('user_id', user_id).eq('message', msg).execute()
                     if not existing.data:
                         supabase.table('notifications').insert({
                             'user_id': user_id,
-                            'title': title,
-                            'description': desc,
-                            'read': False
+                            'message': msg,
+                            'is_read': False
                         }).execute()
                 continue
                 
@@ -570,26 +568,22 @@ def check_and_create_deadline_notifications(user_id: str):
                 
                 time_diff = task_date - now
                 if time_diff.total_seconds() < 0:
-                    title = "Overdue Deadline"
-                    desc = f"Task '{task['title']}' is overdue! (Due: {deadline_str})"
-                    existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', title).eq('description', desc).execute()
+                    msg = f"Overdue Deadline: Task '{task['title']}' is overdue! (Due: {deadline_str})"
+                    existing = supabase.table('notifications').select('id').eq('user_id', user_id).eq('message', msg).execute()
                     if not existing.data:
                         supabase.table('notifications').insert({
                             'user_id': user_id,
-                            'title': title,
-                            'description': desc,
-                            'read': False
+                            'message': msg,
+                            'is_read': False
                         }).execute()
                 elif 0 <= time_diff.total_seconds() <= 129600: # 36 hours
-                    title = "Upcoming Deadline"
-                    desc = f"Task '{task['title']}' is due soon. (Due: {deadline_str})"
-                    existing = supabase.table('notifications').select('*').eq('user_id', user_id).eq('title', title).eq('description', desc).execute()
+                    msg = f"Upcoming Deadline: Task '{task['title']}' is due soon. (Due: {deadline_str})"
+                    existing = supabase.table('notifications').select('id').eq('user_id', user_id).eq('message', msg).execute()
                     if not existing.data:
                         supabase.table('notifications').insert({
                             'user_id': user_id,
-                            'title': title,
-                            'description': desc,
-                            'read': False
+                            'message': msg,
+                            'is_read': False
                         }).execute()
             except Exception as parse_err:
                 logger.debug(f"Failed to parse task deadline: {parse_err}")
@@ -604,7 +598,7 @@ def get_notifications(user: Any = Depends(get_current_user)):
     # Dynamically generate upcoming/overdue alerts
     check_and_create_deadline_notifications(user.id)
     try:
-        notifications = supabase.table('notifications').select('*').eq('user_id', user.id).order('timestamp', desc=True).execute()
+        notifications = supabase.table('notifications').select('*').eq('user_id', user.id).order('created_at', desc=True).execute()
         return notifications.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -612,7 +606,7 @@ def get_notifications(user: Any = Depends(get_current_user)):
 @app.post("/api/notifications/{notif_id}/read")
 def mark_notification_read(notif_id: int, user: Any = Depends(get_current_user)):
     try:
-        result = supabase.table('notifications').update({'read': True}).eq('id', notif_id).execute()
+        result = supabase.table('notifications').update({'is_read': True}).eq('id', notif_id).execute()
         return result.data[0] if result.data else {}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

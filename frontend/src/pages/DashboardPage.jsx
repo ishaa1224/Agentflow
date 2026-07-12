@@ -289,6 +289,9 @@ export default function DashboardPage() {
       if (response.ok) {
         const data = await response.json()
         setNotifications(data)
+        // Seed local read state from DB is_read field
+        const alreadyRead = new Set(data.filter(n => n.is_read).map(n => n.id))
+        setReadNotifications(alreadyRead)
       }
     } catch (e) {
       console.error(e)
@@ -736,8 +739,8 @@ export default function DashboardPage() {
 
   // 1. Asymmetric Workspace Dashboard
   const renderWorkspace = () => {
-    const pendingTasks = tasks.filter(t => !t.completed)
-    const completedTasks = tasks.filter(t => t.completed)
+    const pendingTasks = tasks.filter(t => t.status !== 'done')
+    const completedTasks = tasks.filter(t => t.status === 'done')
     const nextDeadlineTask = pendingTasks.find(t => t.deadline)
     const completionPercent = tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0
     const highPriorityCount = pendingTasks.filter(t => t.priority === 'High').length
@@ -1537,7 +1540,7 @@ export default function DashboardPage() {
               <div
                 key={task.id}
                 className={`card rounded-lg p-5 transition-all duration-200 flex flex-col justify-between  ${
-                  task.completed ? 'opacity-50' : 'hover:border-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/10'
+                  task.status === 'done' ? 'opacity-50' : 'hover:border-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/10'
                 }`}
               >
                 <div className="flex justify-between items-start gap-2">
@@ -1545,17 +1548,17 @@ export default function DashboardPage() {
                     <button
                       onClick={() => handleToggleTaskComplete(task.id, task.title)}
                       className={`h-5 w-5 rounded-md border shrink-0 mt-1 flex items-center justify-center transition-all ${
-                        task.completed
+                        task.status === 'done'
                           ? 'bg-blue-700 border-blue-500 text-white'
                           : 'border-[var(--border-color)] bg-[var(--bg-primary)] hover:border-[var(--text-secondary)]'
                       }`}
                     >
-                      {task.completed && <CheckSquare className="h-4 w-4" />}
+                      {task.status === 'done' && <CheckSquare className="h-4 w-4" />}
                     </button>
                     
                     <div className="min-w-0">
                       <h4 className={`text-base font-semibold leading-relaxed truncate ${
-                        task.completed ? 'line-through text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]'
+                        task.status === 'done' ? 'line-through text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]'
                       }`}>
                         {task.title}
                       </h4>
@@ -1607,7 +1610,7 @@ export default function DashboardPage() {
 
   // 6. Insights (Analytics charts & score indicators)
   const renderAnalytics = () => {
-    const completedCount = tasks.filter(t => t.completed).length
+    const completedCount = tasks.filter(t => t.status === 'done').length
     const totalCount = tasks.length
     const completionPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
 
@@ -2003,12 +2006,12 @@ export default function DashboardPage() {
 
                   <div className="flex-grow space-y-1.5">
                     <div className="flex justify-between items-start gap-2">
-                      <strong className="text-sm font-semibold">{notif.title}</strong>
+                      <strong className="text-sm font-semibold">{notif.message ? notif.message.split(':')[0] : 'Notification'}</strong>
                       {!isRead && (
                         <span className="h-2 w-2 rounded-md bg-blue-600 shrink-0 mt-1.5 " />
                       )}
                     </div>
-                    <p className="text-xs text-[var(--text-secondary)] font-light leading-relaxed">{notif.message || notif.description}</p>
+                    <p className="text-xs text-[var(--text-secondary)] font-light leading-relaxed">{notif.message ? notif.message.split(':').slice(1).join(':').trim() || notif.message : ''}</p>
                   </div>
                 </div>
               )
