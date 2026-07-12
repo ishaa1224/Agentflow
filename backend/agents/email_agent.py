@@ -11,12 +11,13 @@ def email_agent_node(state: AgentState) -> AgentState:
     Responsible for fetching recent emails and drafting contextual replies.
     """
     logger.info("Executing Email Agent Node...")
-    query = state.get("query", "").lower()
+    query = state.get("query", "")
+    user_id = state.get("user_id").lower()
     
     # 1. Action: Draft a reply if requested
     if "draft" in query or "reply" in query:
         # Try to find which email to reply to (either by index or text match)
-        emails = gmail_service.fetch_recent_emails()
+        emails = gmail_service.fetch_recent_emails(user_id)
         target_email = None
         
         if emails:
@@ -57,7 +58,7 @@ def email_agent_node(state: AgentState) -> AgentState:
     # 2. Action: Fetch recent emails
     else:
         logger.info("Fetching recent emails from Gmail Service...")
-        emails = gmail_service.fetch_recent_emails()
+        emails = gmail_service.fetch_recent_emails(user_id)
         state["emails"] = emails
         
         email_summaries = []

@@ -7,8 +7,10 @@ from fastapi.responses import FileResponse, RedirectResponse
 import pypdf
 
 # Backend local imports
-from backend.config import get_settings, UPLOAD_DIR
-from backend.database import supabase
+from backend.config import get_settings, UPLOAD_DIR, FRONTEND_URL
+from backend.database import supabase, get_current_user
+from fastapi import Depends
+from typing import Any
 from backend.vector_store import vector_store
 from backend.gmail_service import gmail_service
 from backend.agents.orchestrator import run_agent_workflow
@@ -33,6 +35,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        FRONTEND_URL,
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
@@ -117,11 +120,11 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     # Save document metadata in Supabase
     try:
-        existing = supabase.table('documents').select('*').eq('filename', filename).execute()
+        existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('filename', filename).execute()
         if existing.data:
             supabase.table('documents').update({'file_size': len(contents), 'file_path': file_path}).eq('filename', filename).execute()
         else:
-            supabase.table('documents').insert({'filename': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
+            supabase.table('documents').insert({'user_id': user.id, 'filename': filename, 'file_path': file_path, 'file_size': len(contents)}).execute()
     except Exception as db_err:
         logger.error(f"Supabase write error for document metadata: {db_err}")
 
@@ -138,7 +141,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     # Log activity
     try:
-        supabase.table('activities').insert({"action": f"Uploaded document: {filename}"}).execute()
+        supabase.table('activities').insert({'user_id': user.id, "action": f"Uploaded document: {filename}"}).execute()
     except Exception:
         pass
 
@@ -150,23 +153,23 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
 
 @app.get("/documents")
-def get_documents():
+def get_documents(user: Any = Depends(get_current_user)):
     """
     Returns list of all active indexed documents.
     """
     try:
-        docs = supabase.table('documents').select('*').order('upload_date', desc=True).execute()
+        docs = supabase.table('documents').select('*').eq('user_id', user.id).order('upload_date', desc=True).execute()
         return docs.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/documents/{doc_id}")
-def delete_document(doc_id: int):
+def delete_document(doc_id: int, user: Any = Depends(get_current_user)):
     """
     Removes a document from Supabase and wipes its text embeddings from ChromaDB.
     """
     try:
-        doc_res = supabase.table('documents').select('*').eq('id', doc_id).execute()
+        doc_res = supabase.table('documents').select('*').eq('user_id', user.id).eq('id', doc_id).execute()
         if not doc_res.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -191,7 +194,7 @@ def delete_document(doc_id: int):
         )
 
 @app.post("/api/documents/extract")
-def extract_document_insights(payload: dict):
+def extract_document_insights(payload: dict, user: Any = Depends(get_current_user)):
     """
     Extracts structured info (tasks, meetings, reminders) from document text.
     """
@@ -225,7 +228,7 @@ def extract_document_insights(payload: dict):
         
         # Save tasks to database
         for t in tasks:
-            supabase.table('tasks').insert({
+            supabase.table('tasks').insert({'user_id': user.id, 
                 "title": t.get("title", "Extracted Task"),
                 "description": t.get("description", ""),
                 "deadline": t.get("deadline", ""),
@@ -234,7 +237,7 @@ def extract_document_insights(payload: dict):
             
         # Save meetings as tasks with deadlines for the calendar
         for m in meetings:
-            supabase.table('tasks').insert({
+            supabase.table('tasks').insert({'user_id': user.id, 
                 "title": f"Meeting: {m.get('title', '')}",
                 "description": m.get("description", ""),
                 "deadline": m.get("time", ""),
@@ -243,7 +246,7 @@ def extract_document_insights(payload: dict):
             
         # Save reminders to notifications table
         for r in reminders:
-            supabase.table('notifications').insert({
+            supabase.table('notifications').insert({'user_id': user.id, 
                 "title": r.get("title", "Reminder"),
                 "description": r.get("description", ""),
                 "time": r.get("time", "")
@@ -252,7 +255,7 @@ def extract_document_insights(payload: dict):
         # Log activity
         try:
             total_items = len(tasks) + len(meetings) + len(reminders)
-            supabase.table('activities').insert({"action": f"AI Document Analysis extracted {total_items} items."}).execute()
+            supabase.table('activities').insert({'user_id': user.id, "action": f"AI Document Analysis extracted {total_items} items."}).execute()
         except Exception:
             pass
             
@@ -271,15 +274,15 @@ def extract_document_insights(payload: dict):
 # ================= TASK MANAGER CRUD ENDPOINTS =================
 
 @app.get("/tasks")
-def get_tasks():
+def get_tasks(user: Any = Depends(get_current_user)):
     """
     Retrieves all tasks in the system.
     """
-    tasks = supabase.table('tasks').select('*').order('created_at', desc=True).execute()
+    tasks = supabase.table('tasks').select('*').eq('user_id', user.id).order('created_at', desc=True).execute()
     return tasks.data
 
 @app.post("/tasks")
-def create_task(title: str, description: Optional[str] = "", deadline: Optional[str] = None, priority: Optional[str] = "Medium"):
+def create_task(title: str, description: Optional[str] = "", deadline: Optional[str] = None, priority: Optional[str] = "Medium", user: Any = Depends(get_current_user)):
     """
     Creates a new task manually.
     """
@@ -301,7 +304,7 @@ def create_task(title: str, description: Optional[str] = "", deadline: Optional[
         
         # Log activity
         try:
-            supabase.table('activities').insert({"action": f"Created new task: {title}"}).execute()
+            supabase.table('activities').insert({'user_id': user.id, "action": f"Created new task: {title}"}).execute()
         except Exception:
             pass
             
@@ -313,7 +316,7 @@ def create_task(title: str, description: Optional[str] = "", deadline: Optional[
         )
 
 @app.put("/tasks/{task_id}")
-def update_task(task_id: int, title: Optional[str] = None, description: Optional[str] = None, deadline: Optional[str] = None, priority: Optional[str] = None, completed: Optional[bool] = None):
+def update_task(task_id: int, title: Optional[str] = None, description: Optional[str] = None, deadline: Optional[str] = None, priority: Optional[str] = None, completed: Optional[bool] = None, user: Any = Depends(get_current_user)):
     """
     Updates details of an existing task.
     """
@@ -346,7 +349,7 @@ def update_task(task_id: int, title: Optional[str] = None, description: Optional
         )
 
 @app.delete("/tasks/{task_id}")
-def delete_task(task_id: int):
+def delete_task(task_id: int, user: Any = Depends(get_current_user)):
     """
     Deletes a task from database.
     """
@@ -367,7 +370,7 @@ def delete_task(task_id: int):
         )
 
 @app.post("/tasks/{task_id}/complete")
-def toggle_task_complete(task_id: int):
+def toggle_task_complete(task_id: int, user: Any = Depends(get_current_user)):
     """
     Toggles completion status of a task.
     """
@@ -386,7 +389,7 @@ def toggle_task_complete(task_id: int):
         # Log activity
         status_text = "Completed" if new_completed else "Reopened"
         try:
-            supabase.table('activities').insert({"action": f"{status_text} task: {title}"}).execute()
+            supabase.table('activities').insert({'user_id': user.id, "action": f"{status_text} task: {title}"}).execute()
         except Exception:
             pass
             
@@ -401,60 +404,61 @@ def toggle_task_complete(task_id: int):
 
 # ================= GMAIL OAUTH & INBOX ENDPOINTS =================
 
+
 @app.get("/api/gmail/connect")
-def gmail_connect(redirect_uri: str = Query("http://localhost:5173/dashboard")):
-    """
-    Returns link status. If credentials exist but token is missing,
-    provides Google OAuth consent redirection link.
-    """
+def gmail_connect(
+    redirect_uri: str = Query("http://localhost:5173/dashboard"),
+    state_token: str = Query(None),
+    user: Any = Depends(get_current_user)
+):
     try:
-        connected = gmail_service.is_connected()
+        connected = gmail_service.is_connected(user.id)
         auth_url = ""
         
         if not connected:
             try:
-                auth_url = gmail_service.get_auth_url(redirect_uri)
+                auth_url = gmail_service.get_auth_url(redirect_uri, state_token)
             except Exception as oauth_err:
                 logger.warning(f"OAuth URL generation blocked: {oauth_err}")
                 
         return {
             "connected": connected,
             "auth_url": auth_url,
-            "sandbox_mode": gmail_service.is_connected() == False and auth_url == ""
+            "sandbox_mode": not connected and not auth_url
         }
     except Exception as e:
-        return {
-            "connected": False,
-            "auth_url": "",
-            "error": str(e),
-            "sandbox_mode": True
-        }
+        return {"connected": False, "auth_url": "", "error": str(e), "sandbox_mode": True}
 
-@app.get("/api/gmail/callback")
-def gmail_callback(code: str, redirect_uri: str = Query("http://localhost:5173/dashboard")):
-    """
-    Catches auth code callback from Google, exchanges for OAuth token,
-    and redirects user back to front dashboard workspace page.
-    """
-    success = gmail_service.exchange_code_for_token(redirect_uri, code)
-    if success:
-        return RedirectResponse(url=redirect_uri)
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Failed to authorize Google OAuth callback code."
-    )
+@app.get("/auth/gmail/callback")
+def gmail_callback(code: str, state: str, redirect_uri: str = Query("http://localhost:5173/dashboard")):
+    # Extract user from state (which is the JWT token passed by frontend)
+    try:
+        user_res = supabase.auth.get_user(state)
+        user_id = user_res.user.id
+        success = gmail_service.exchange_code_for_token(redirect_uri, code, user_id)
+        if success:
+            return RedirectResponse(url=redirect_uri + "?tab=inbox")
+    except Exception as e:
+        logger.error(f"Callback error: {e}")
+        
+    return RedirectResponse(url=redirect_uri + "?tab=inbox&gmail_error=auth_failed")
+
+@app.post("/api/gmail/sync")
+def sync_emails(user: Any = Depends(get_current_user)):
+    try:
+        result = gmail_service.sync_emails(user.id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/gmail/emails")
-def get_emails():
-    """
-    Returns recent emails list. Fallback loads simulated Sandbox email array.
-    """
-    return gmail_service.fetch_recent_emails()
+def get_emails(user: Any = Depends(get_current_user)):
+    return gmail_service.fetch_recent_emails(user.id)
 
-# ================= MULTI-AGENT GRAPH CHAT ENGINE =================
+# ================= MULTI-AGENT# ================= MULTI-AGENT GRAPH CHAT ENGINE =================
 
 @app.post("/api/chat")
-def run_agent_chat(payload: dict):
+def run_agent_chat(payload: dict, user: Any = Depends(get_current_user)):
     """
     Core Multi-Agent chat interface.
     Takes conversational query, feeds to LangGraph orchestrator graph router,
@@ -468,12 +472,12 @@ def run_agent_chat(payload: dict):
         )
         
     try:
-        result = run_agent_workflow(query)
+        result = run_agent_workflow(query, user.id)
         
         # Save to chat_history
         response_text = result.get("response", "")
         try:
-            supabase.table('chat_history').insert({
+            supabase.table('chat_history').insert({'user_id': user.id, 
                 "query": query,
                 "response": response_text
             }).execute()
@@ -489,12 +493,12 @@ def run_agent_chat(payload: dict):
         )
 
 @app.get("/api/chat_history")
-def get_chat_history():
+def get_chat_history(user: Any = Depends(get_current_user)):
     """
     Returns previous chat history logs.
     """
     try:
-        history = supabase.table('chat_history').select('*').order('timestamp', desc=False).execute()
+        history = supabase.table('chat_history').select('*').eq('user_id', user.id).order('timestamp', desc=False).execute()
         return history.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -502,18 +506,18 @@ def get_chat_history():
 # ================= NOTIFICATIONS ENGINE =================
 
 @app.get("/api/notifications")
-def get_notifications():
+def get_notifications(user: Any = Depends(get_current_user)):
     """
     Aggregates active deadlines and alerts from Supabase.
     """
     try:
-        notifications = supabase.table('notifications').select('*').order('timestamp', desc=True).execute()
+        notifications = supabase.table('notifications').select('*').eq('user_id', user.id).order('timestamp', desc=True).execute()
         return notifications.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/notifications/{notif_id}/read")
-def mark_notification_read(notif_id: int):
+def mark_notification_read(notif_id: int, user: Any = Depends(get_current_user)):
     try:
         result = supabase.table('notifications').update({'read': True}).eq('id', notif_id).execute()
         return result.data[0] if result.data else {}
@@ -523,34 +527,34 @@ def mark_notification_read(notif_id: int):
 # ================= ACTIVITIES ENGINE =================
 
 @app.get("/api/notifications")
-def get_notifications():
+def get_notifications(user: Any = Depends(get_current_user)):
     """
     Retrieves all notifications (reminders/alerts) in the system.
     """
     try:
-        notifications = supabase.table('notifications').select('*').order('timestamp', desc=True).execute()
+        notifications = supabase.table('notifications').select('*').eq('user_id', user.id).order('timestamp', desc=True).execute()
         return notifications.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/activities")
-def get_activities():
+def get_activities(user: Any = Depends(get_current_user)):
     """
     Returns system activities from Supabase.
     """
     try:
-        activities = supabase.table('activities').select('*').order('timestamp', desc=True).execute()
+        activities = supabase.table('activities').select('*').eq('user_id', user.id).order('timestamp', desc=True).execute()
         return activities.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/activities")
-def create_activity(payload: dict):
+def create_activity(payload: dict, user: Any = Depends(get_current_user)):
     action = payload.get("action", "").strip()
     if not action:
         raise HTTPException(status_code=400, detail="Action text required.")
     try:
-        res = supabase.table('activities').insert({"action": action}).execute()
+        res = supabase.table('activities').insert({'user_id': user.id, "action": action}).execute()
         return res.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -558,7 +562,7 @@ def create_activity(payload: dict):
 # ================= REPORTS & PDF EXPORTS ENDPOINTS =================
 
 @app.post("/api/reports/generate")
-def generate_report():
+def generate_report(user: Any = Depends(get_current_user)):
     """
     Triggers the Report Specialist agent to compile a summary Markdown document.
     """
@@ -575,7 +579,7 @@ def generate_report():
     }
 
 @app.post("/api/reports/export")
-def export_report_pdf(payload: dict):
+def export_report_pdf(payload: dict, user: Any = Depends(get_current_user)):
     """
     Accepts Markdown text content, compiles a styled corporate PDF layout,
     and returns a downloadable file byte stream.

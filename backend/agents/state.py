@@ -16,6 +16,7 @@ class AgentState(TypedDict):
     notifications: List[Dict[str, Any]]
     
     # State tracking variables for routing
+    user_id: str
     query: str
     context: str
     response: str

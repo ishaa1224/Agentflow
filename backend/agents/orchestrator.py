@@ -111,13 +111,14 @@ workflow.add_edge("notification_agent", END)
 compiled_agent_graph = workflow.compile()
 logger.info("LangGraph workflow graph compiled successfully.")
 
-def run_agent_workflow(user_query: str) -> dict:
+def run_agent_workflow(user_query: str, user_id: str) -> dict:
     """
     Executes the multi-agent graph with the given user query.
     Returns the accumulated state.
     """
     initial_state = {
         "messages": [{"role": "user", "content": user_query}],
+        "user_id": user_id,
         "query": user_query,
         "tasks": [],
         "emails": [],

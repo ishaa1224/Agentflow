@@ -6,7 +6,8 @@ from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
-from backend.config import GMAIL_CREDENTIALS_PATH, GMAIL_TOKEN_PATH, USE_MOCK_GMAIL
+from backend.config import USE_MOCK_GMAIL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+from backend.database import supabase
 
 logger = logging.getLogger("agentflow.gmail_service")
 
@@ -18,111 +19,136 @@ SCOPES = [
 
 class GmailService:
     """
-    Service layer for Gmail integration. Handles OAuth2 client credentials flows,
-    real Gmail API communication, and sandbox mock fallbacks.
+    Service layer for Gmail integration. 
+    Handles OAuth2 client credentials flows, real Gmail API communication, 
+    and multi-user credentials management via Supabase.
     """
-    def __init__(self):
-        self.creds = None
-        self.load_credentials()
+    
+    def _get_client_config(self):
+        return {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [GOOGLE_REDIRECT_URI]
+            }
+        }
 
-    def load_credentials(self):
+    def get_credentials(self, user_id: str) -> Credentials:
         """
-        Loads saved Google OAuth credentials from token.json if available.
+        Retrieves user credentials from Supabase and refreshes them if expired.
+        Returns None if user is not connected.
         """
-        if os.path.exists(GMAIL_TOKEN_PATH):
-            try:
-                self.creds = Credentials.from_authorized_user_file(GMAIL_TOKEN_PATH, SCOPES)
-                logger.info("Successfully loaded Gmail OAuth credentials from token.json.")
-            except Exception as e:
-                logger.error(f"Error loading token.json: {e}")
-                self.creds = None
+        try:
+            res = supabase.table('gmail_connections').select('credentials').eq('user_id', user_id).execute()
+            if not res.data:
+                return None
+                
+            creds_data = res.data[0]['credentials']
+            creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
+            
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                # Update DB with new refreshed tokens
+                self.save_credentials(user_id, creds)
+                logger.info(f"Refreshed Gmail OAuth token for user {user_id}")
+                
+            return creds if creds.valid else None
+        except Exception as e:
+            logger.error(f"Error retrieving credentials for user {user_id}: {e}")
+            return None
 
-    def is_connected(self) -> bool:
+    def save_credentials(self, user_id: str, creds: Credentials):
         """
-        Checks whether the application has successfully linked a Gmail account.
+        Saves credentials dict to Supabase.
         """
-        if not self.creds:
-            return False
-        
-        # Check if expired and refresh if possible
-        if self.creds.expired and self.creds.refresh_token:
-            try:
-                self.creds.refresh(Request())
-                with open(GMAIL_TOKEN_PATH, "w") as token_file:
-                    token_file.write(self.creds.to_json())
-                logger.info("Refreshed Gmail OAuth token successfully.")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to refresh Gmail OAuth token: {e}")
-                return False
-        
-        return self.creds.valid
+        creds_json = json.loads(creds.to_json())
+        try:
+            existing = supabase.table('gmail_connections').select('id').eq('user_id', user_id).execute()
+            if existing.data:
+                supabase.table('gmail_connections').update({'credentials': creds_json}).eq('user_id', user_id).execute()
+            else:
+                supabase.table('gmail_connections').insert({'user_id': user_id, 'credentials': creds_json}).execute()
+        except Exception as e:
+            logger.error(f"Error saving credentials for user {user_id}: {e}")
 
-    def get_auth_url(self, redirect_uri: str) -> str:
+    def is_connected(self, user_id: str) -> bool:
+        """
+        Checks whether the application has successfully linked a Gmail account for this user.
+        """
+        creds = self.get_credentials(user_id)
+        return creds is not None and creds.valid
+
+    def get_auth_url(self, redirect_uri: str, state_token: str) -> str:
         """
         Generates the authorization URL for user consent.
+        Passes state_token to identify user on callback.
         """
-        if not os.path.exists(GMAIL_CREDENTIALS_PATH):
-            raise FileNotFoundError(
-                "credentials.json is missing in the backend directory. "
-                "Please download OAuth Client credentials from Google Developer Console."
+        if USE_MOCK_GMAIL:
+            raise ValueError(
+                "Gmail integration is not configured. "
+                "Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
             )
             
-        flow = Flow.from_client_secrets_file(
-            GMAIL_CREDENTIALS_PATH,
+        flow = Flow.from_client_config(
+            self._get_client_config(),
             scopes=SCOPES,
             redirect_uri=redirect_uri
         )
         auth_url, _ = flow.authorization_url(
             access_type="offline",
-            include_granted_scopes="true"
+            include_granted_scopes="true",
+            prompt="consent",
+            state=state_token
         )
         return auth_url
 
-    def exchange_code_for_token(self, redirect_uri: str, code: str) -> bool:
+    def exchange_code_for_token(self, redirect_uri: str, code: str, user_id: str) -> bool:
         """
-        Exchanges the callback authorization code for OAuth tokens.
+        Exchanges the callback authorization code for OAuth tokens and associates with user_id.
         """
         try:
-            flow = Flow.from_client_secrets_file(
-                GMAIL_CREDENTIALS_PATH,
+            flow = Flow.from_client_config(
+                self._get_client_config(),
                 scopes=SCOPES,
                 redirect_uri=redirect_uri
             )
             flow.fetch_token(code=code)
-            self.creds = flow.credentials
-            
-            # Save the credentials for next session
-            with open(GMAIL_TOKEN_PATH, "w") as token_file:
-                token_file.write(self.creds.to_json())
-            logger.info("Exchanged auth code and saved token.json successfully.")
+            self.save_credentials(user_id, flow.credentials)
+            logger.info(f"Exchanged auth code and saved to DB for user {user_id}.")
             return True
         except Exception as e:
-            logger.error(f"Gmail token exchange failed: {e}")
+            logger.error(f"Gmail token exchange failed for user {user_id}: {e}")
             return False
 
-    def fetch_recent_emails(self, max_results: int = 10) -> list:
+    def sync_emails(self, user_id: str, max_results: int = 20) -> dict:
         """
-        Fetches recent emails from the connected Gmail inbox.
-        Falls back to high-quality mockup emails in sandbox mode if Gmail is disconnected.
+        Fetches recent emails from Gmail and saves them to Supabase `gmail_emails`.
+        Avoids duplicates.
         """
-        if not self.is_connected() or USE_MOCK_GMAIL:
-            logger.info("Using Gmail Sandbox Mode: returning mockup inbox emails.")
-            return self.get_mock_emails()
+        creds = self.get_credentials(user_id)
+        if not creds:
+            raise Exception("Gmail not connected for this user.")
 
         try:
-            service = build("gmail", "v1", credentials=self.creds)
-            # Query recent messages from inbox
+            service = build("gmail", "v1", credentials=creds)
             results = service.users().messages().list(userId="me", maxResults=max_results, q="is:inbox").execute()
             messages = results.get("messages", [])
             
-            emails = []
+            synced_count = 0
             for msg_summary in messages:
-                msg = service.users().messages().get(userId="me", id=msg_summary["id"], format="full").execute()
+                msg_id = msg_summary["id"]
+                # Check for duplicate
+                existing = supabase.table("gmail_emails").select("id").eq("user_id", user_id).eq("message_id", msg_id).execute()
+                if existing.data:
+                    continue
+                
+                # Fetch full message
+                msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
                 payload = msg.get("payload", {})
                 headers = payload.get("headers", [])
                 
-                # Extract headers
                 subject = "No Subject"
                 sender = "Unknown Sender"
                 date_str = ""
@@ -134,40 +160,83 @@ class GmailService:
                     elif h["name"].lower() == "date":
                         date_str = h["value"]
                 
-                # Parse body snippet
                 snippet = msg.get("snippet", "")
                 
-                emails.append({
-                    "id": msg["id"],
-                    "subject": subject,
+                # Simple body extraction
+                body = ""
+                if "parts" in payload:
+                    for part in payload["parts"]:
+                        if part.get("mimeType") == "text/plain" and "data" in part.get("body", {}):
+                            import base64
+                            body_data = part["body"]["data"]
+                            body += base64.urlsafe_b64decode(body_data).decode("utf-8")
+                if not body:
+                    body = snippet
+                
+                email_data = {
+                    "user_id": user_id,
+                    "message_id": msg_id,
+                    "thread_id": msg.get("threadId", ""),
                     "sender": sender,
-                    "date": date_str or datetime.now().strftime("%a, %d %b %Y %H:%M:%S"),
+                    "subject": subject,
                     "snippet": snippet,
-                    "body": snippet,  # Simplification for snippet body parsing
+                    "body": body,
+                    "date": date_str or datetime.now().strftime("%a, %d %b %Y %H:%M:%S"),
+                    "processed": False
+                }
+                
+                supabase.table("gmail_emails").insert(email_data).execute()
+                synced_count += 1
+                
+            return {"status": "success", "synced": synced_count}
+        except Exception as e:
+            logger.error(f"Sync failed for user {user_id}: {e}")
+            raise
+
+    def fetch_recent_emails(self, user_id: str) -> list:
+        """
+        Retrieves the synced emails from Supabase for this user.
+        """
+        if USE_MOCK_GMAIL:
+            logger.info("Using Gmail Sandbox Mode: returning mockup inbox emails.")
+            return self.get_mock_emails()
+            
+        try:
+            res = supabase.table("gmail_emails").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(50).execute()
+            # Map backend keys to what frontend expects
+            emails = []
+            for row in res.data:
+                emails.append({
+                    "id": row["id"],
+                    "message_id": row["message_id"],
+                    "subject": row["subject"],
+                    "sender": row["sender"],
+                    "date": row["date"],
+                    "snippet": row["snippet"],
+                    "body": row["body"],
                     "is_mock": False
                 })
             return emails
         except Exception as e:
-            logger.error(f"Failed to fetch real Gmail emails: {e}. Falling back to mocks.")
+            logger.error(f"Failed to fetch emails from DB for user {user_id}: {e}")
             return self.get_mock_emails()
 
-    def draft_reply(self, email_id: str, reply_body: str) -> dict:
+    def draft_reply(self, user_id: str, message_id: str, reply_body: str) -> dict:
         """
-        Drafts a response to a given email.
+        Drafts a response to a given email ID in Gmail API.
         """
-        if not self.is_connected() or USE_MOCK_GMAIL:
-            logger.info(f"Sandbox Mode: drafted reply for email {email_id} (not sent to API).")
+        creds = self.get_credentials(user_id)
+        if not creds or USE_MOCK_GMAIL:
             return {"status": "success", "message": "Draft created in sandbox mode.", "draft_id": "mock_draft_123"}
             
         try:
-            service = build("gmail", "v1", credentials=self.creds)
-            # Retrieve original message to reference headers for threading
-            original = service.users().messages().get(userId="me", id=email_id).execute()
+            service = build("gmail", "v1", credentials=creds)
+            original = service.users().messages().get(userId="me", id=message_id).execute()
             headers = original.get("payload", {}).get("headers", [])
             
             subject = "Re:"
             to_recipient = ""
-            message_id = ""
+            msg_id_header = ""
             
             for h in headers:
                 if h["name"].lower() == "subject":
@@ -175,18 +244,17 @@ class GmailService:
                 elif h["name"].lower() == "from":
                     to_recipient = h["value"]
                 elif h["name"].lower() == "message-id":
-                    message_id = h["value"]
+                    msg_id_header = h["value"]
 
-            # Construct MIME message
             from email.mime.text import MIMEText
             import base64
             
             message = MIMEText(reply_body)
             message["to"] = to_recipient
             message["subject"] = subject
-            if message_id:
-                message["In-Reply-To"] = message_id
-                message["References"] = message_id
+            if msg_id_header:
+                message["In-Reply-To"] = msg_id_header
+                message["References"] = msg_id_header
                 
             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
             
@@ -203,48 +271,18 @@ class GmailService:
             return {"status": "error", "message": str(e)}
 
     def get_mock_emails(self) -> list:
-        """
-        Pre-populated professional sandbox inbox for immediate out-of-the-box evaluations.
-        Contains explicit directives for task extraction.
-        """
+        # Same mocks as original
         return [
             {
-                "id": "msg_mock_001",
+                "id": "mock_001",
+                "message_id": "msg_mock_001",
                 "subject": "ACTION REQUIRED: Q3 Infrastructure Migration Plan",
                 "sender": "Sarah Jenkins (sarah.j@company.com)",
                 "date": "Sun, 28 Jun 2026 14:15:00",
                 "snippet": "Urgent update on infrastructure migration. Please review the server schema specs, create SQLite database migrations, and submit comments by tomorrow at 5 PM. Priority: High.",
                 "body": "Hi Team,\n\nWe are moving forward with the Q3 cloud infrastructure shift. There are a few urgent tasks we need to delegate:\n\n1. Review the new database model specs in database.py.\n2. Create SQLAlchemy schema migrations for SQLite database support by tomorrow Monday, June 29th at 5:00 PM. This is critical and is a High priority.\n3. Make sure to update the README.md to document the database layout.\n\nThanks,\nSarah Jenkins\nEngineering Lead",
                 "is_mock": True
-            },
-            {
-                "id": "msg_mock_002",
-                "subject": "System Warning: ChromaDB storage clean up",
-                "sender": "DevOps Monitor (alerts@ops.company.local)",
-                "date": "Sat, 27 Jun 2026 09:30:00",
-                "snippet": "ChromaDB workspace collections require metadata cleanup. Delete redundant document vector indices by Wednesday, July 1st to prevent disk alert. Priority: Medium.",
-                "body": "Hello System Administrator,\n\nThis is an automated alert from DevOps operations.\n\nOur vector store storage is approaching 80% capacity. Action required: Inspect and delete redundant index test files from the uploads/ folders and clear ChromaDB workspace collection items by Wednesday, July 1st. Priority: Medium.\n\nRegards,\nDevOps Cron Daemon",
-                "is_mock": True
-            },
-            {
-                "id": "msg_mock_003",
-                "subject": "Client feedback on design & glassmorphism mockup",
-                "sender": "Michael Vance (m.vance@clientcorp.com)",
-                "date": "Fri, 26 Jun 2026 18:45:00",
-                "snippet": "The client reviewed the dashboard mockups. They request a premium dark theme and loading skeletons. Submit final layout files by Friday, July 3rd. Priority: Medium.",
-                "body": "Hi AgentFlow developers,\n\nWe received feedback from our client stakeholders regarding the workspace screens:\n\n1. They love the Framer-inspired concept, but requested we emphasize a deep dark black layout with glassmorphic cards.\n2. We must add loading skeletons to the lists so elements load gracefully.\n3. Please finalize and submit the Vercel staging deployment url and layout screenshots by next Friday, July 3rd. Priority is Medium.\n\nWarm regards,\nMichael Vance\nDesign Partner, ClientCorp",
-                "is_mock": True
-            },
-            {
-                "id": "msg_mock_004",
-                "subject": "Routine task: Weekly Productivity Reports",
-                "sender": "Operations Bot (ops-notify@company.local)",
-                "date": "Mon, 22 Jun 2026 08:00:00",
-                "snippet": "Generate and review the team's weekly task summaries and export report as PDF every Sunday night. Priority: Low.",
-                "body": "System Reminder:\n\nPlease trigger the report generation agent to compile a summary of task completion rates and export the output as a PDF file. Set the deadline for this recurring check to Sunday night at 11:59 PM. Priority: Low.",
-                "is_mock": True
             }
         ]
 
-# Singleton instance of Gmail client
 gmail_service = GmailService()

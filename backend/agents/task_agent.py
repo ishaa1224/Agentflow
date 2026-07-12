@@ -16,6 +16,7 @@ def task_agent_node(state: AgentState) -> AgentState:
     """
     logger.info("Executing Task Extraction Agent Node...")
     query = state.get("query", "")
+    user_id = state.get("user_id")
     
     # Identify content to parse.
     # If the user asks to extract tasks from emails, we fetch recent emails.
@@ -24,7 +25,7 @@ def task_agent_node(state: AgentState) -> AgentState:
     source_email_id = None
     
     if "from email" in query.lower() or "recent emails" in query.lower():
-        emails = gmail_service.fetch_recent_emails()
+        emails = gmail_service.fetch_recent_emails(user_id)
         if emails:
             # Join recent email contents to parse
             email_texts = []
@@ -50,7 +51,7 @@ def task_agent_node(state: AgentState) -> AgentState:
         f"For each task, identify:\n"
         f"- title: short description of what needs to be done\n"
         f"- description: additional details or context\n"
-        f"- deadline: due date formatted as ISO-8601 (YYYY-MM-DDTHH:MM:SS) if specified, else null\n"
+        f"- deadline: ONLY extract explicit due dates or times mentioned. Return null if none is explicitly stated. Do not invent or infer deadlines.\n"
         f"- priority: priority level (must be one of 'High', 'Medium', or 'Low')\n\n"
         f"Text to parse:\n{content_to_parse}\n\n"
         f"You must respond ONLY with a valid JSON object matching this schema:\n"
@@ -93,6 +94,7 @@ def task_agent_node(state: AgentState) -> AgentState:
                     "deadline": task_data.get("deadline"),
                     "priority": task_data.get("priority", "Medium"),
                     "completed": False,
+                    "user_id": user_id,
                     "source_email_id": source_email_id
                 }
                 res = supabase.table('tasks').insert(new_task).execute()
@@ -103,7 +105,7 @@ def task_agent_node(state: AgentState) -> AgentState:
             
             # Log activity
             try:
-                supabase.table('activities').insert({"action": f"Agent extracted {len(saved_tasks)} tasks"}).execute()
+                supabase.table('activities').insert({"action": f"Agent extracted {len(saved_tasks)} tasks", "user_id": user_id}).execute()
             except Exception:
                 pass
         except Exception as db_err:
