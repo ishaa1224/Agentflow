@@ -21,8 +21,18 @@ import {
 import { fetchWithAuth } from '../lib/supabase'
 
 // Backend upload api URL
+// Backend upload api URL
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 const API_URL = `${API_BASE}/upload`
+
+const PIPELINE_STEPS = [
+  { label: 'Uploading File', key: 'Uploading' },
+  { label: 'Parsing PDF Content', key: 'Parsing PDF' },
+  { label: 'Generating Embeddings', key: 'Creating Embeddings' },
+  { label: 'Indexing Vector Database', key: 'Indexing' },
+  { label: 'Extracting Actionable Tasks', key: 'Extracting Tasks' },
+  { label: 'Finished Ingestion', key: 'Finished' }
+]
 
 export default function UploadPage() {
   const navigate = useNavigate()
@@ -49,6 +59,7 @@ export default function UploadPage() {
   const [extractedText, setExtractedText] = useState('')
   const [copied, setCopied] = useState(false)
   const [aiInsights, setAiInsights] = useState(null)
+  const [progressStep, setProgressStep] = useState(null)
   
   const fileInputRef = useRef(null)
 
@@ -116,15 +127,47 @@ export default function UploadPage() {
     setSuccess(null)
     setExtractedText('')
     setAiInsights(null)
+    setProgressStep('Uploading')
 
     const formData = new FormData()
     formData.append('file', file)
+
+    // Start progress polling
+    let pollingActive = true
+    const pollProgress = async () => {
+      if (!pollingActive) return
+      try {
+        const res = await fetchWithAuth(`${API_BASE}/api/documents/progress/${encodeURIComponent(file.name)}`)
+        if (res.ok && pollingActive) {
+          const statusData = await res.json()
+          if (statusData.status) {
+            // Map Indexing to Indexing Vector Database, since creating embeddings writes to ChromaDB
+            let backendStatus = statusData.status
+            if (backendStatus === 'Creating Embeddings') {
+              setProgressStep('Creating Embeddings')
+            } else {
+              setProgressStep(backendStatus)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error polling progress:', err)
+      }
+      if (pollingActive) {
+        setTimeout(pollProgress, 600)
+      }
+    }
+
+    // Trigger initial poll delay
+    setTimeout(pollProgress, 600)
 
     try {
       const response = await fetchWithAuth(API_URL, {
         method: 'POST',
         body: formData,
       })
+
+      pollingActive = false // Stop polling
 
       let data = {}
       const contentType = response.headers.get('content-type')
@@ -139,31 +182,18 @@ export default function UploadPage() {
         throw new Error(data.detail || 'An error occurred during upload.')
       }
 
-      setSuccess(data.message || 'PDF uploaded and vector indexed successfully!')
-      setExtractedText(data.text_preview || '')
-
-      // Automatically analyze document content to extract tasks in the database
-      if (data.text_preview) {
-        setSuccess(prev => prev + ' AI Ingestion Active: Extracting tasks, meetings, and reminders...')
-        fetchWithAuth(`${API_BASE}/api/documents/extract`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            text: data.text_preview 
-          })
-        }).then(res => res.json()).then(result => {
-          if (result.success) {
-            setSuccess('PDF uploaded, vector indexed, and AI workflow executed successfully!')
-            setAiInsights(result)
-          } else {
-            setSuccess('PDF uploaded & indexed. Automatic task extraction failed.')
-          }
-        }).catch(err => {
-          console.error(err)
-          setSuccess('PDF uploaded & indexed. Network error running task extraction.')
-        })
-      }
+      setProgressStep('Finished')
+      setSuccess('PDF uploaded, vector indexed, and AI insights extracted successfully!')
+      setExtractedText(data.extracted_text || '')
+      setAiInsights({
+        tasks: data.tasks || [],
+        meetings: data.meetings || [],
+        reminders: data.reminders || [],
+        summary: data.document_summary || ''
+      })
     } catch (err) {
+      pollingActive = false
+      setProgressStep('Failed')
       console.error(err)
       setError(err.message || 'Unable to connect to the backend server. Make sure the FastAPI backend is running.')
     } finally {
@@ -184,6 +214,7 @@ export default function UploadPage() {
     setSuccess(null)
     setExtractedText('')
     setAiInsights(null)
+    setProgressStep(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -423,87 +454,242 @@ export default function UploadPage() {
               <HelpCircle className="h-5 w-5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition" />
             </div>
 
-            {/* Prompt Box */}
-            <div className="framer-card rounded-2xl p-5 bg-[var(--bg-primary)]/40 relative overflow-hidden">
-              <div className="absolute -right-8 -top-8 h-20 w-20 glow-purple pointer-events-none opacity-40"></div>
-              <h4 className="text-sm text-[var(--text-primary)] font-medium leading-relaxed max-w-[90%]">
-                Build a text extraction pipeline that reads uploaded bytes, runs pypdf reader, and displays parsed string outputs.
-              </h4>
-            </div>
+            {aiInsights && progressStep === 'Finished' ? (
+              <div className="space-y-6 flex-grow overflow-y-auto custom-scrollbar max-h-[calc(100vh-280px)] pr-2">
+                {/* AI Document Summary */}
+                {aiInsights.summary && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                      <Sparkles className="h-4.5 w-4.5 text-purple-500 animate-pulse" />
+                      <span>Executive AI Summary</span>
+                    </div>
+                    <div className="rounded-2xl p-4 bg-purple-500/5 border border-purple-500/10 text-sm text-[var(--text-secondary)] font-light leading-relaxed">
+                      {aiInsights.summary}
+                    </div>
+                  </div>
+                )}
 
-            {/* Thought log */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] font-semibold tracking-wide uppercase">
-                <Clock className="h-4 w-4 text-[var(--text-tertiary)]" />
-                <span>Thought 1.2s</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-[var(--border-color)]"></span>
-                <span className="text-[var(--text-tertiary)] lowercase font-normal font-mono">local node</span>
-              </div>
-              
-              <div className="framer-card rounded-xl p-4 bg-[var(--bg-primary)]/20 border border-[var(--border-color)]">
-                <p className="text-sm text-[var(--text-secondary)] font-light leading-relaxed">
-                  I'll read the binary stream, validate the extension header, write it to `uploads/{file?.name || 'document.pdf'}`, and extract string chunks page-by-page.
-                </p>
-              </div>
-            </div>
-
-            {/* Ingestion active indicators */}
-            {file && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="framer-card rounded-xl p-4 bg-[var(--bg-primary)]/25 flex items-center justify-between text-sm"
-              >
-                <div className="flex items-center gap-2 min-w-0 pr-2">
-                  <span className="text-[var(--text-tertiary)] select-none">{"<>"}</span>
-                  <span className="font-mono text-[var(--text-primary)] truncate text-sm">{file.name}</span>
+                {/* Statistics Cards */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="framer-card p-3 rounded-xl text-center bg-[var(--bg-primary)]">
+                    <div className="text-xl font-bold text-emerald-500">{aiInsights.tasks?.length || 0}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider mt-0.5">Tasks</div>
+                  </div>
+                  <div className="framer-card p-3 rounded-xl text-center bg-[var(--bg-primary)]">
+                    <div className="text-xl font-bold text-purple-500">{aiInsights.meetings?.length || 0}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider mt-0.5">Meetings</div>
+                  </div>
+                  <div className="framer-card p-3 rounded-xl text-center bg-[var(--bg-primary)]">
+                    <div className="text-xl font-bold text-amber-500">{aiInsights.reminders?.length || 0}</div>
+                    <div className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider mt-0.5">Alerts</div>
+                  </div>
                 </div>
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 rounded uppercase tracking-wider shrink-0">
-                  Ready
-                </span>
-              </motion.div>
+
+                {/* Tasks List */}
+                {aiInsights.tasks && aiInsights.tasks.length > 0 && (
+                  <div className="space-y-3">
+                    <h5 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-color)] pb-1.5">Extracted Tasks</h5>
+                    <div className="space-y-2">
+                      {aiInsights.tasks.map((task, idx) => (
+                        <div key={idx} className="framer-card p-3 rounded-xl bg-[var(--bg-primary)]/50 border border-[var(--border-color)]/60 text-xs flex flex-col gap-1">
+                          <div className="flex items-center justify-between font-semibold text-[var(--text-primary)]">
+                            <span className="truncate pr-2">{task.title}</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                              task.priority === 'High' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                              task.priority === 'Medium' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                              'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                            }`}>
+                              {task.priority}
+                            </span>
+                          </div>
+                          <p className="text-[var(--text-secondary)] font-light leading-normal mt-0.5">{task.description}</p>
+                          {task.deadline && (
+                            <div className="text-[10px] text-[var(--text-tertiary)] mt-1.5 flex items-center gap-1 font-mono">
+                              <Clock className="h-3 w-3" /> {task.deadline}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Meetings List */}
+                {aiInsights.meetings && aiInsights.meetings.length > 0 && (
+                  <div className="space-y-3">
+                    <h5 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-color)] pb-1.5">Meetings</h5>
+                    <div className="space-y-2">
+                      {aiInsights.meetings.map((meeting, idx) => (
+                        <div key={idx} className="framer-card p-3 rounded-xl bg-[var(--bg-primary)]/50 border border-purple-500/10 text-xs flex flex-col gap-1">
+                          <div className="font-semibold text-purple-600 dark:text-purple-400">{meeting.title}</div>
+                          <p className="text-[var(--text-secondary)] font-light leading-normal">{meeting.description}</p>
+                          {meeting.time && (
+                            <div className="text-[10px] text-[var(--text-tertiary)] mt-1.5 flex items-center gap-1 font-mono">
+                              <Clock className="h-3 w-3 text-purple-500" /> {meeting.time}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reminders List */}
+                {aiInsights.reminders && aiInsights.reminders.length > 0 && (
+                  <div className="space-y-3">
+                    <h5 className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider border-b border-[var(--border-color)] pb-1.5">Reminders & Alerts</h5>
+                    <div className="space-y-2">
+                      {aiInsights.reminders.map((reminder, idx) => (
+                        <div key={idx} className="framer-card p-3 rounded-xl bg-[var(--bg-primary)]/50 border border-amber-500/10 text-xs flex flex-col gap-1">
+                          <div className="font-semibold text-amber-600 dark:text-amber-400">{reminder.title}</div>
+                          <p className="text-[var(--text-secondary)] font-light leading-normal">{reminder.description}</p>
+                          {reminder.time && (
+                            <div className="text-[10px] text-[var(--text-tertiary)] mt-1.5 flex items-center gap-1 font-mono">
+                              <Clock className="h-3 w-3 text-amber-500" /> {reminder.time}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Prompt Box */}
+                <div className="framer-card rounded-2xl p-5 bg-[var(--bg-primary)]/40 relative overflow-hidden">
+                  <div className="absolute -right-8 -top-8 h-20 w-20 glow-purple pointer-events-none opacity-40"></div>
+                  <h4 className="text-sm text-[var(--text-primary)] font-medium leading-relaxed max-w-[90%]">
+                    Build a text extraction pipeline that reads uploaded bytes, runs pypdf reader, and displays parsed string outputs.
+                  </h4>
+                </div>
+
+                {/* Thought log */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] font-semibold tracking-wide uppercase">
+                    <Clock className="h-4 w-4 text-[var(--text-tertiary)]" />
+                    <span>Thought 1.2s</span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--border-color)]"></span>
+                    <span className="text-[var(--text-tertiary)] lowercase font-normal font-mono">local node</span>
+                  </div>
+                  
+                  <div className="framer-card rounded-xl p-4 bg-[var(--bg-primary)]/20 border border-[var(--border-color)]">
+                    <p className="text-sm text-[var(--text-secondary)] font-light leading-relaxed">
+                      I'll read the binary stream, validate the extension header, write it to `uploads/{file?.name || 'document.pdf'}`, and extract string chunks page-by-page.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live progress indicators or Ready state */}
+                {file && (
+                  <div className="space-y-3 bg-[var(--bg-primary)]/30 border border-[var(--border-color)] rounded-2xl p-5 relative overflow-hidden">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">Ingestion Status</span>
+                      {progressStep === 'Failed' ? (
+                        <span className="text-xs font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded uppercase tracking-wider">Failed</span>
+                      ) : progressStep && progressStep !== 'Finished' ? (
+                        <span className="text-xs font-bold text-purple-500 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">Running</span>
+                      ) : (
+                        <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">Ready</span>
+                      )}
+                    </div>
+
+                    {progressStep && progressStep !== 'Failed' ? (
+                      <div className="space-y-2.5 mt-2">
+                        {PIPELINE_STEPS.map((step, idx) => {
+                          const stepIndex = PIPELINE_STEPS.findIndex(s => s.key === step.key);
+                          const currentActiveIndex = PIPELINE_STEPS.findIndex(s => s.key === progressStep);
+                          const isCompleted = currentActiveIndex > stepIndex;
+                          const isActive = currentActiveIndex === stepIndex;
+                          
+                          return (
+                            <div key={step.key} className="flex items-center justify-between text-xs py-1.5 border-b border-[var(--border-color)]/20 last:border-0">
+                              <div className="flex items-center gap-2">
+                                {isCompleted ? (
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                ) : isActive ? (
+                                  <div className="h-4 w-4 rounded-full border-2 border-purple-500 border-t-transparent animate-spin shrink-0" />
+                                ) : (
+                                  <div className="h-4 w-4 rounded-full border border-[var(--text-tertiary)]/30 shrink-0" />
+                                )}
+                                <span className={`${isCompleted ? 'text-[var(--text-secondary)] line-through' : isActive ? 'text-purple-500 font-bold' : 'text-[var(--text-tertiary)]'}`}>
+                                  {step.label}
+                                </span>
+                              </div>
+                              {isCompleted && <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Done</span>}
+                              {isActive && <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 animate-pulse">Running...</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="text-[var(--text-tertiary)] select-none">{"<>"}</span>
+                          <span className="font-mono text-[var(--text-primary)] truncate">{file.name}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 rounded uppercase tracking-wider shrink-0">
+                          Ready
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
           {/* Action Trigger panel */}
           <div className="mt-8 space-y-4">
-            <form onSubmit={handleUpload} className="relative">
-              <input
-                type="text"
-                disabled={loading || !file}
-                placeholder={file ? "Confirm and process PDF upload..." : "Select a PDF file to enable copilot..."}
-                value={file && !loading && !success ? "Extract text from local dataset" : ""}
-                readOnly
-                onClick={(e) => {
-                  if (file && !loading && !success) {
-                    handleUpload(e)
-                  }
-                }}
-                className="w-full glass-input py-4 pl-4 pr-12 rounded-2xl disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm"
-              />
-              
+            {progressStep === 'Finished' ? (
               <button
-                type="submit"
-                disabled={loading || !file}
-                className={`absolute right-2 top-2 p-2.5 rounded-xl transition ${
-                  loading || !file
-                    ? 'text-[var(--text-tertiary)]'
-                    : 'text-[var(--btn-primary-text)] bg-[var(--btn-primary-bg)] hover:opacity-90 active:scale-[0.95]'
-                }`}
+                type="button"
+                onClick={handleReset}
+                className="w-full btn-secondary py-3.5 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2"
               >
-                {loading ? (
-                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
+                Analyze Another Document
               </button>
-            </form>
-            <span className="block text-center text-xs text-[var(--text-tertiary)] font-light mt-1">
-              Click prompt input or arrow button to trigger document parsing.
-            </span>
+            ) : (
+              <>
+                <form onSubmit={handleUpload} className="relative">
+                  <input
+                    type="text"
+                    disabled={loading || !file}
+                    placeholder={file ? "Confirm and process PDF upload..." : "Select a PDF file to enable copilot..."}
+                    value={file && !loading && !success ? "Extract text from local dataset" : ""}
+                    readOnly
+                    onClick={(e) => {
+                      if (file && !loading && !success) {
+                        handleUpload(e)
+                      }
+                    }}
+                    className="w-full glass-input py-4 pl-4 pr-12 rounded-2xl disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm"
+                  />
+                  
+                  <button
+                    type="submit"
+                    disabled={loading || !file}
+                    className={`absolute right-2 top-2 p-2.5 rounded-xl transition ${
+                      loading || !file
+                        ? 'text-[var(--text-tertiary)]'
+                        : 'text-[var(--btn-primary-text)] bg-[var(--btn-primary-bg)] hover:opacity-90 active:scale-[0.95]'
+                    }`}
+                  >
+                    {loading ? (
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </button>
+                </form>
+                <span className="block text-center text-xs text-[var(--text-tertiary)] font-light mt-1">
+                  Click prompt input or arrow button to trigger document parsing.
+                </span>
+              </>
+            )}
           </div>
 
         </div>

@@ -7,6 +7,7 @@ from backend.agents.rag_agent import rag_agent_node
 from backend.agents.web_search_agent import web_search_agent_node
 from backend.agents.report_agent import report_agent_node
 from backend.agents.notification_agent import notification_agent_node
+from backend.agents.doc_agent import doc_agent_node
 from backend.llm import llm_client
 
 logger = logging.getLogger("agentflow.agents.orchestrator")
@@ -20,8 +21,11 @@ def supervisor_router_node(state: AgentState) -> AgentState:
     query = state.get("query", "").lower()
     logger.info(f"Supervisor parsing routing logic for query: '{query}'")
     
+    # 0. Routing rules for document analysis
+    if "analyze document" in query or "process and analyze" in query or "document analysis" in query:
+        state["next_agent"] = "doc_agent"
     # 1. Routing rules based on keywords
-    if any(keyword in query for keyword in ["email", "inbox", "gmail", "draft", "reply"]):
+    elif any(keyword in query for keyword in ["email", "inbox", "gmail", "draft", "reply"]):
         state["next_agent"] = "email_agent"
     elif any(keyword in query for keyword in ["task", "todo", "extract", "checklist", "priority"]):
         state["next_agent"] = "task_agent"
@@ -48,7 +52,7 @@ def supervisor_router_node(state: AgentState) -> AgentState:
         )
         try:
             decision = llm_client.generate(prompt=prompt, system_instruction="You are a routing supervisor.").strip().lower()
-            if decision in ["email_agent", "task_agent", "rag_agent", "web_search_agent", "report_agent", "notification_agent"]:
+            if decision in ["email_agent", "task_agent", "rag_agent", "web_search_agent", "report_agent", "notification_agent", "doc_agent"]:
                 state["next_agent"] = decision
             else:
                 state["next_agent"] = "end"
@@ -80,6 +84,7 @@ workflow.add_node("rag_agent", rag_agent_node)
 workflow.add_node("web_search_agent", web_search_agent_node)
 workflow.add_node("report_agent", report_agent_node)
 workflow.add_node("notification_agent", notification_agent_node)
+workflow.add_node("doc_agent", doc_agent_node)
 
 # Connect edges
 workflow.set_entry_point("supervisor")
@@ -95,6 +100,7 @@ workflow.add_conditional_edges(
         "web_search_agent": "web_search_agent",
         "report_agent": "report_agent",
         "notification_agent": "notification_agent",
+        "doc_agent": "doc_agent",
         END: END
     }
 )
@@ -106,12 +112,13 @@ workflow.add_edge("rag_agent", END)
 workflow.add_edge("web_search_agent", END)
 workflow.add_edge("report_agent", END)
 workflow.add_edge("notification_agent", END)
+workflow.add_edge("doc_agent", END)
 
 # Compile graph
 compiled_agent_graph = workflow.compile()
 logger.info("LangGraph workflow graph compiled successfully.")
 
-def run_agent_workflow(user_query: str, user_id: str) -> dict:
+def run_agent_workflow(user_query: str, user_id: str, context: str = "") -> dict:
     """
     Executes the multi-agent graph with the given user query.
     Returns the accumulated state.
@@ -124,9 +131,12 @@ def run_agent_workflow(user_query: str, user_id: str) -> dict:
         "emails": [],
         "reports": [],
         "notifications": [],
-        "context": "",
+        "context": context,
         "response": "",
-        "next_agent": "supervisor"
+        "next_agent": "supervisor",
+        "document_summary": "",
+        "meetings": [],
+        "reminders": []
     }
     
     final_state = compiled_agent_graph.invoke(initial_state)
@@ -138,5 +148,9 @@ def run_agent_workflow(user_query: str, user_id: str) -> dict:
         "tasks": final_state.get("tasks", []),
         "emails": final_state.get("emails", []),
         "notifications": final_state.get("notifications", []),
-        "report_content": final_state.get("report_content", "")
+        "report_content": final_state.get("report_content", ""),
+        "document_summary": final_state.get("document_summary", ""),
+        "meetings": final_state.get("meetings", []),
+        "reminders": final_state.get("reminders", []),
+        "extracted_text": final_state.get("context", "")
     }

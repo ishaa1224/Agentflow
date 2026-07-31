@@ -61,7 +61,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const { signOut, user } = useAuth()
+  const { signOut, user, session } = useAuth()
 
   const getUserName = () => {
     if (!user) return 'User'

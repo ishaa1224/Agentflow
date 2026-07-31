@@ -76,7 +76,9 @@ class LLMClient:
         
         # 0. SUPERVISOR ROUTING DECISION
         if "routing supervisor" in sys_inst_lower:
-            if any(keyword in prompt_lower for keyword in ["email", "inbox", "gmail", "draft", "reply"]):
+            if "analyze document" in prompt_lower or "process and analyze" in prompt_lower or "document analysis" in prompt_lower:
+                return "doc_agent"
+            elif any(keyword in prompt_lower for keyword in ["email", "inbox", "gmail", "draft", "reply"]):
                 return "email_agent"
             elif any(keyword in prompt_lower for keyword in ["task", "todo", "extract", "checklist", "priority"]):
                 return "task_agent"
@@ -89,6 +91,15 @@ class LLMClient:
             elif any(keyword in prompt_lower for keyword in ["document", "pdf", "file", "rag", "ask"]):
                 return "rag_agent"
             return "end"
+
+        # 0.5. DOCUMENT SUMMARY Request
+        if not response_json and ("summary" in prompt_lower or "summarize" in prompt_lower or "executive summary" in prompt_lower):
+            return (
+                "Executive Summary: This document details the strategic rollout plan for the AgentFlow platform. "
+                "It covers database models migrations to SQLAlchemy, integration with local vector stores (ChromaDB), "
+                "development of multi-agent graph workflows, and front-end dashboard enhancements. "
+                "Critical next steps include clearing legacy databases, drafting final security protocols, and testing Vercel staging builds."
+            )
 
         # 1. TASK EXTRACTION AGENT Request
         is_task_extraction = "task extraction" in sys_inst_lower or "strict json" in sys_inst_lower

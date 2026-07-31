@@ -61,40 +61,59 @@ def read_root():
 
 # ================= DOCUMENT INGESTION & RAG ENDPOINTS =================
 
+# Global dictionary to track document processing progress
+processing_status = {}
+
+@app.get("/api/documents/progress/{filename}")
+def get_document_progress(filename: str, user: Any = Depends(get_current_user)):
+    """
+    Retrieves the live processing progress status for a specific file.
+    """
+    status_key = f"{user.id}_{filename}"
+    return {"status": processing_status.get(status_key, "Uploading")}
+
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_current_user)):
     """
-    Ingests a PDF file, parses its text, stores document metadata in Supabase,
-    and indexes embeddings in the persistent ChromaDB collection.
+    Ingests a PDF file, parses its text, stores document metadata and full text in Supabase,
+    indexes embeddings in the persistent ChromaDB collection, triggers the LangGraph orchestrator,
+    and returns a structured JSON containing extracted text, summary, tasks, meetings, and notifications.
     """
     filename = file.filename
+    status_key = f"{user.id}_{filename}"
+    processing_status[status_key] = "Parsing PDF"
+    
     if not filename.lower().endswith(".pdf"):
+        processing_status[status_key] = "Failed"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file type. Only PDF files are allowed."
         )
 
+    file_path = os.path.join(UPLOAD_DIR, filename)
     try:
         try:
             contents = await file.read()
         except Exception as e:
+            processing_status[status_key] = "Failed"
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to read file: {str(e)}"
             )
 
         if len(contents) == 0:
+            processing_status[status_key] = "Failed"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The uploaded file is empty."
             )
 
         # Save to disk
-        file_path = os.path.join(UPLOAD_DIR, filename)
         try:
             with open(file_path, "wb") as f:
                 f.write(contents)
         except Exception as e:
+            processing_status[status_key] = "Failed"
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to write file to local disk uploads/: {str(e)}"
@@ -113,6 +132,7 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
                 extracted_text = "[No indexable text extracted from this PDF document.]"
                 
         except Exception as e:
+            processing_status[status_key] = "Failed"
             if os.path.exists(file_path):
                 os.remove(file_path)
             raise HTTPException(
@@ -120,46 +140,79 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
                 detail=f"PDF reading error: {str(e)}"
             )
 
-        # Save document metadata in Supabase
+        # Save document metadata and extracted text in Supabase
         try:
             existing = supabase.table('documents').select('*').eq('user_id', user.id).eq('file_name', filename).execute()
             if existing.data:
-                supabase.table('documents').update({'upload_date': datetime.utcnow().isoformat()}).eq('file_name', filename).execute()
+                supabase.table('documents').update({
+                    'upload_date': datetime.utcnow().isoformat(),
+                    'extracted_text': extracted_text
+                }).eq('file_name', filename).execute()
             else:
-                supabase.table('documents').insert({'user_id': user.id, 'file_name': filename}).execute()
+                supabase.table('documents').insert({
+                    'user_id': user.id, 
+                    'file_name': filename,
+                    'extracted_text': extracted_text
+                }).execute()
         except Exception as db_err:
             logger.error(f"Supabase write error for document metadata: {db_err}")
 
         # Add text chunks and vectors in ChromaDB
+        processing_status[status_key] = "Creating Embeddings"
         try:
             vector_store.delete_document(filename)
             chunk_count = vector_store.add_document(filename, extracted_text)
         except Exception as vs_err:
+            processing_status[status_key] = "Failed"
             logger.error(f"ChromaDB write error: {vs_err}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Vector store indexing failed: {str(vs_err)}"
             )
 
-        # Log activity and save success notification
+        # Trigger the LangGraph orchestrator
+        processing_status[status_key] = "Extracting Tasks"
         try:
-            supabase.table('activities').insert({'user_id': user.id, "action": f"Uploaded document: {filename}"}).execute()
-            supabase.table('notifications').insert({
-                'user_id': user.id,
-                'message': f"PDF Ingested: Document '{filename}' has been successfully uploaded.",
-                'is_read': False
-            }).execute()
-        except Exception as log_err:
-            logger.error(f"Failed to log activity or notification for upload: {log_err}")
+            workflow_result = run_agent_workflow(
+                user_query=f"Process and analyze document: {filename}",
+                user_id=str(user.id),
+                context=extracted_text
+            )
+        except Exception as graph_err:
+            processing_status[status_key] = "Failed"
+            logger.error(f"LangGraph execution error: {graph_err}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"LangGraph agent execution failed: {str(graph_err)}"
+            )
+
+        processing_status[status_key] = "Finished"
+        
+        # Clean up temporary file
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as rm_err:
+                logger.warning(f"Failed to remove temporary file {file_path}: {rm_err}")
 
         return {
-            "message": f"Document '{filename}' successfully ingested and indexed.",
-            "filename": filename,
-            "chunks": chunk_count,
-            "text_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
+            "extracted_text": extracted_text,
+            "document_summary": workflow_result.get("document_summary", ""),
+            "tasks": workflow_result.get("tasks", []),
+            "meetings": workflow_result.get("meetings", []),
+            "reminders": workflow_result.get("reminders", []),
+            "notifications": workflow_result.get("notifications", [])
         }
 
     except Exception as err:
+        processing_status[status_key] = "Failed"
+        # Clean up temporary file on error
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+                
         try:
             supabase.table('notifications').insert({
                 'user_id': user.id,

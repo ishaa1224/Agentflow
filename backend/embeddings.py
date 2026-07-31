@@ -27,7 +27,7 @@ class EmbeddingManager:
         try:
             from sentence_transformers import SentenceTransformer
             logger.info("Initializing local SentenceTransformer ('all-MiniLM-L6-v2')...")
-            self.model = SentenceTransformer("all-MiniLM-L6-v2")
+            self.model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
             self.dimension = 384
             self.mode = "sentence-transformers"
             logger.info("SentenceTransformer loaded successfully.")

@@ -21,3 +21,8 @@ class AgentState(TypedDict):
     context: str
     response: str
     next_agent: str
+    
+    # PDF Ingestion insights tracking
+    document_summary: str
+    meetings: List[Dict[str, Any]]
+    reminders: List[Dict[str, Any]]
