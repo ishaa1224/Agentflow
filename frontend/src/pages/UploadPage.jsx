@@ -137,7 +137,7 @@ export default function UploadPage() {
     const pollProgress = async () => {
       if (!pollingActive) return
       try {
-        const res = await fetchWithAuth(`${API_BASE}/api/documents/progress/${encodeURIComponent(file.name)}`)
+        const res = await fetchWithAuth(`${API_BASE}/api/documents/progress/${encodeURIComponent(file.name)}?t=${Date.now()}`)
         if (res.ok && pollingActive) {
           const statusData = await res.json()
           if (statusData.status) {
