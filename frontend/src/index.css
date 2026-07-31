@@ -112,6 +112,10 @@
     @apply rounded-lg px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
   }
 
+  .input-icon-container {
+    @apply absolute left-3.5 top-0 bottom-0 flex items-center justify-center pointer-events-none text-[var(--text-tertiary)];
+  }
+
   /* Buttons */
   .btn-primary {
     background-color: var(--btn-primary-bg);

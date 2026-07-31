@@ -132,7 +132,7 @@ export default function LoginPage() {
                 Email address
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-3 text-[var(--text-tertiary)]">
+                <span className="input-icon-container">
                   <Mail className="h-4.5 w-4.5" />
                 </span>
                 <input
@@ -158,7 +158,7 @@ export default function LoginPage() {
                 )}
               </div>
               <div className="relative">
-                <span className="absolute left-3.5 top-3 text-[var(--text-tertiary)]">
+                <span className="input-icon-container">
                   <Lock className="h-4.5 w-4.5" />
                 </span>
                 <input
