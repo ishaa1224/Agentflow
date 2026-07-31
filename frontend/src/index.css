@@ -116,6 +116,10 @@
     @apply absolute left-3.5 top-0 bottom-0 flex items-center justify-center pointer-events-none text-[var(--text-tertiary)];
   }
 
+  .glass-input-with-icon {
+    padding-left: 2.5rem !important;
+  }
+
   /* Buttons */
   .btn-primary {
     background-color: var(--btn-primary-bg);

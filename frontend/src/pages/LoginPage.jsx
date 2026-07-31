@@ -131,7 +131,7 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-[var(--text-primary)]">
                 Email address
               </label>
-              <div className="relative">
+              <div className="relative flex items-center w-full">
                 <span className="input-icon-container">
                   <Mail className="h-4.5 w-4.5" />
                 </span>
@@ -141,7 +141,7 @@ export default function LoginPage() {
                   placeholder="name@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full glass-input pl-10"
+                  className="block w-full glass-input glass-input-with-icon"
                 />
               </div>
             </div>
@@ -157,7 +157,7 @@ export default function LoginPage() {
                   </a>
                 )}
               </div>
-              <div className="relative">
+              <div className="relative flex items-center w-full">
                 <span className="input-icon-container">
                   <Lock className="h-4.5 w-4.5" />
                 </span>
@@ -167,7 +167,7 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full glass-input pl-10"
+                  className="block w-full glass-input glass-input-with-icon"
                 />
               </div>
             </div>
