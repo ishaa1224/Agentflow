@@ -33,20 +33,23 @@ app = FastAPI(
 )
 
 # CORS Configuration
+# Build allowed origins dynamically so any deployment just needs FRONTEND_URL set
+_STATIC_ORIGINS = [
+    "https://agentflow-five-mocha.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+_allowed_origins = list({FRONTEND_URL, *_STATIC_ORIGINS})  # deduplicate
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        "https://agentflow-five-mocha.vercel.app",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

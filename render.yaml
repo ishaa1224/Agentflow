@@ -11,13 +11,27 @@ services:
       - key: DATABASE_URL
         value: sqlite:///backend/agentflow.db
       - key: GEMINI_API_KEY
-        value: "" # Set user Gemini API key in Render Dashboard env
+        value: "" # Set in Render Dashboard
+      - key: SUPABASE_URL
+        value: "" # Set in Render Dashboard
+      - key: SUPABASE_ANON_KEY
+        value: "" # Set in Render Dashboard
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: "" # Set in Render Dashboard
+      - key: FRONTEND_URL
+        value: "https://agentflow-five-mocha.vercel.app"
+      - key: GOOGLE_CLIENT_ID
+        value: "" # Set in Render Dashboard
+      - key: GOOGLE_CLIENT_SECRET
+        value: "" # Set in Render Dashboard
+      - key: GOOGLE_REDIRECT_URI
+        value: "" # Set in Render Dashboard e.g. https://agentflow-4.onrender.com/auth/gmail/callback
 
-  # React Frontend Service
+  # React Frontend Service (if serving via Render instead of Vercel)
   - type: web
     name: agentflow-ai-frontend
     env: static
-    buildCommand: npm run build
+    buildCommand: cd frontend && npm install && npm run build
     publishPath: frontend/dist
     headers:
       - key: Cache-Control
@@ -26,3 +40,10 @@ services:
       - type: rewrite
         src: /*
         dest: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        value: "" # Set in Render Dashboard
+      - key: VITE_SUPABASE_ANON_KEY
+        value: "" # Set in Render Dashboard
+      - key: VITE_API_BASE_URL
+        value: "https://agentflow-ai-backend.onrender.com"

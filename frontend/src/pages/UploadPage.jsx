@@ -19,10 +19,7 @@ import {
 } from 'lucide-react'
 
 import { fetchWithAuth } from '../lib/supabase'
-
-// Backend upload api URL
-// Backend upload api URL
-const API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://agentflow-4.onrender.com' : 'http://127.0.0.1:8000')
+import API_BASE from '../api'
 const API_URL = `${API_BASE}/upload`
 
 const PIPELINE_STEPS = [

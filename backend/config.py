@@ -1,6 +1,9 @@
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -13,14 +16,14 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads"))
 CHROMA_DB_DIR = os.getenv("CHROMA_DB_DIR", str(BASE_DIR / "chroma_db"))
 
 # Supabase Credentials
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
-if not SUPABASE_URL:
-    raise ValueError("Missing required environment variable: SUPABASE_URL")
-if not SUPABASE_ANON_KEY:
-    raise ValueError("Missing required environment variable: SUPABASE_ANON_KEY")
+# Flag: True only when both required Supabase vars are present
+SUPABASE_CONFIGURED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+if not SUPABASE_CONFIGURED:
+    logger.warning("⚠️  Supabase credentials not set — auth features will be unavailable.")
 
 # API Keys
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
