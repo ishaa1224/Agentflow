@@ -93,9 +93,8 @@ def task_agent_node(state: AgentState) -> AgentState:
                     "description": task_data.get("description", ""),
                     "deadline": task_data.get("deadline"),
                     "priority": task_data.get("priority", "Medium"),
-                    "completed": False,
-                    "user_id": user_id,
-                    "source_email_id": source_email_id
+                    "status": "todo",
+                    "user_id": user_id
                 }
                 res = supabase.table('tasks').insert(new_task).execute()
                 if res.data:

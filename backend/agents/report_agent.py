@@ -30,7 +30,7 @@ def report_agent_node(state: AgentState) -> AgentState:
     tasks_summary_str = ""
     if tasks_dicts:
         tasks_summary_str = "\n".join([
-            f"- Title: {t['title']} | Priority: {t['priority']} | Status: {'Completed' if t['completed'] else 'Pending'} | Due: {t['deadline'] or 'None'}"
+            f"- Title: {t['title']} | Priority: {t['priority']} | Status: {'Completed' if t.get('status') == 'done' else 'Pending'} | Due: {t['deadline'] or 'None'}"
             for t in tasks_dicts
         ])
     else:

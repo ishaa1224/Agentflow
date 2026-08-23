@@ -40,6 +40,8 @@ class GmailService:
         Retrieves user credentials from Supabase and refreshes them if expired.
         Returns None if user is not connected.
         """
+        if USE_MOCK_GMAIL:
+            return None
         try:
             res = supabase.table('gmail_connections').select('credentials').eq('user_id', user_id).execute()
             if not res.data:
@@ -63,6 +65,8 @@ class GmailService:
         """
         Saves credentials dict to Supabase.
         """
+        if USE_MOCK_GMAIL:
+            return
         creds_json = json.loads(creds.to_json())
         try:
             existing = supabase.table('gmail_connections').select('id').eq('user_id', user_id).execute()
@@ -127,6 +131,10 @@ class GmailService:
         Fetches recent emails from Gmail and saves them to Supabase `gmail_emails`.
         Avoids duplicates.
         """
+        if USE_MOCK_GMAIL:
+            logger.info("Using Gmail Sandbox Mode: sync_emails returning mock success.")
+            return {"status": "success", "synced": 0}
+            
         creds = self.get_credentials(user_id)
         if not creds:
             raise Exception("Gmail not connected for this user.")

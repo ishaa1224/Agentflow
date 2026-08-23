@@ -25,3 +25,7 @@ chroma_db/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Scratch / schema scripts
+check_schema.py
+backend/check_schema.py
