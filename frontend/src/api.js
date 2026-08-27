@@ -4,7 +4,7 @@
 const API_BASE = (
   import.meta.env.VITE_API_BASE_URL ||
   (import.meta.env.PROD
-    ? 'https://agentflow-ai-backend.onrender.com'
+    ? 'https://agentflow-4.onrender.com'
     : 'http://127.0.0.1:8000')
 ).replace(/\/+$/, ''); // strip trailing slashes
 
