@@ -47,6 +47,8 @@ _STATIC_ORIGINS = [
 ]
 _allowed_origins = list({FRONTEND_URL, *_STATIC_ORIGINS})  # deduplicate
 
+logger.info(f"CORS configured with allowed origins: {_allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -165,7 +167,16 @@ async def upload_pdf(file: UploadFile = File(...), user: Any = Depends(get_curre
         processing_status[status_key] = "Creating Embeddings"
         try:
             vector_store.delete_document(filename)
-            chunk_count = vector_store.add_document(filename, extracted_text)
+            
+            def index_callback():
+                processing_status[status_key] = "Indexing"
+                logger.info(f"Embeddings generated. ChromaDB vector indexing started for '{filename}'.")
+                
+            chunk_count = vector_store.add_document(
+                filename, 
+                extracted_text, 
+                on_index_start=index_callback
+            )
         except Exception as vs_err:
             processing_status[status_key] = "Failed"
             logger.error(f"ChromaDB write error: {vs_err}")

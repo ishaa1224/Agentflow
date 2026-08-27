@@ -25,7 +25,7 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         value: "" # Set in Render Dashboard
       - key: GOOGLE_REDIRECT_URI
-        value: "" # Set in Render Dashboard e.g. https://agentflow-4.onrender.com/auth/gmail/callback
+        value: "" # Set in Render Dashboard e.g. https://agentflow-ai-backend.onrender.com/auth/gmail/callback
 
   # React Frontend Service (if serving via Render instead of Vercel)
   - type: web
@@ -46,4 +46,4 @@ services:
       - key: VITE_SUPABASE_ANON_KEY
         value: "" # Set in Render Dashboard
       - key: VITE_API_BASE_URL
-        value: "https://agentflow-4.onrender.com"
+        value: "https://agentflow-ai-backend.onrender.com"

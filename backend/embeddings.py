@@ -27,7 +27,11 @@ class EmbeddingManager:
         try:
             from sentence_transformers import SentenceTransformer
             logger.info("Initializing local SentenceTransformer ('all-MiniLM-L6-v2')...")
-            self.model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
+            try:
+                self.model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=True)
+            except Exception:
+                logger.info("Model 'all-MiniLM-L6-v2' not found in local cache. Downloading from Hugging Face...")
+                self.model = SentenceTransformer("all-MiniLM-L6-v2", local_files_only=False)
             self.dimension = 384
             self.mode = "sentence-transformers"
             logger.info("SentenceTransformer loaded successfully.")
@@ -80,16 +84,15 @@ class EmbeddingManager:
         if self.mode == "gemini":
             try:
                 import google.generativeai as genai
-                embeddings = []
-                for text in texts:
-                    # Limit input length if necessary
-                    truncated = text[:4000]
-                    result = genai.embed_content(
-                        model="models/embedding-001",
-                        content=truncated,
-                        task_type="retrieval_document"
-                    )
-                    embeddings.append(result["embedding"])
+                truncated_texts = [text[:4000] for text in texts]
+                result = genai.embed_content(
+                    model="models/embedding-001",
+                    content=truncated_texts,
+                    task_type="retrieval_document"
+                )
+                embeddings = result.get("embedding", [])
+                if len(texts) == 1 and len(embeddings) > 0 and not isinstance(embeddings[0], list):
+                    return [embeddings]
                 return embeddings
             except Exception as e:
                 logger.error(f"Gemini embedding API failed: {e}. Switching to basic fallback.")

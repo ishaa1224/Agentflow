@@ -73,7 +73,7 @@ class RAGVectorStore:
                 break
         return chunks
 
-    def add_document(self, filename: str, text: str) -> int:
+    def add_document(self, filename: str, text: str, on_index_start=None) -> int:
         """
         Chunks the document text, generates embeddings, and saves them to ChromaDB.
         Returns the number of chunks added.
@@ -84,6 +84,12 @@ class RAGVectorStore:
             
         # Generate embeddings for all chunks
         embeddings = self.embedding_manager.embed_documents(chunks)
+        
+        if on_index_start:
+            try:
+                on_index_start()
+            except Exception as cb_err:
+                logger.warning(f"Error in on_index_start callback: {cb_err}")
         
         ids = [f"{filename}_{uuid.uuid4()}" for _ in range(len(chunks))]
         metadatas = [{"filename": filename} for _ in range(len(chunks))]

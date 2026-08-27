@@ -201,6 +201,8 @@ export default function DashboardPage() {
         setBackendStatus('online')
         setLlmMode(data.settings.use_mock_llm ? 'Simulator' : 'Gemini')
         setGmailSandbox(data.settings.use_mock_gmail)
+      } else {
+        setBackendStatus('offline')
       }
     } catch (e) {
       setBackendStatus('offline')
@@ -2277,6 +2279,11 @@ export default function DashboardPage() {
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 dark:text-purple-400 rounded-lg text-xs uppercase font-bold tracking-wider">
                 <span className="h-2 w-2 bg-purple-400 rounded-md animate-ping" />
                 Live Node Online
+              </span>
+            ) : backendStatus === 'checking' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-xs uppercase font-bold tracking-wider">
+                <span className="h-2 w-2 bg-amber-400 rounded-md animate-spin" />
+                Connecting / Waking...
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-lg text-xs uppercase font-bold tracking-wider">
